@@ -172,3 +172,18 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+vector_db/4a469680-030f-44dc-88bf-f7c112db1d48/data_level0.bin
+vector_db/4a469680-030f-44dc-88bf-f7c112db1d48/header.bin
+vector_db/4a469680-030f-44dc-88bf-f7c112db1d48/length.bin
+vector_db/4a469680-030f-44dc-88bf-f7c112db1d48/link_lists.bin
+vector_db/chroma.sqlite3
+vector_store_manager.py
+sample_pdfs/1706.03762v7.pdf
+sample_pdfs/2201.11903v6.pdf
+sample_pdfs/2304.02643v1.pdf
+sample_pdfs/2307.06435v10.pdf
+sample_pdfs/2312.10997v5.pdf
+open_ai_api_key.txt
+results/combined_report.html
+results/summary_evaluation_results.csv
+results/summary_quality_categories.csv
