@@ -187,3 +187,5 @@ open_ai_api_key.txt
 results/combined_report.html
 results/summary_evaluation_results.csv
 results/summary_quality_categories.csv
+my_index/vector_index.pkl
+quality_model.pkl

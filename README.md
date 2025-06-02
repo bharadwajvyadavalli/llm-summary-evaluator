@@ -1,482 +1,346 @@
-# LLM Evaluation System
+# LLM Evaluation Service
 
-A comprehensive system for evaluating LLM-generated content through two complementary approaches: **Summary Evaluation** (original POC) and **RAG Q&A Evaluation** (new system).
-
-## 🎯 Overview
-
-This project provides **dual evaluation capabilities**:
-
-### 📝 **Summary Evaluation System (Original POC)**
-- Evaluates LLM-generated summaries against reference text
-- Uses mathematical metrics (ROUGE, BLEU, semantic similarity)
-- LLM-as-judge evaluation for subjective criteria
-- Quality categorization (Low/Medium/High) through clustering
-
-### 🔍 **RAG Q&A Evaluation System (New)**
-- Query any PDF documents with natural language questions
-- Retrieval-Augmented Generation (RAG) with vector storage
-- Evaluates response quality using RAG-specific metrics
-- Works with any document type (no academic requirements)
-
-## 🏗️ System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    LLM EVALUATION SYSTEM                    │
-├─────────────────────────────────────────────────────────────┤
-│  📝 SUMMARY EVALUATION        │  🔍 RAG Q&A EVALUATION     │
-│                               │                             │
-│  ┌─────────────────────────┐  │  ┌─────────────────────────┐ │
-│  │ PDF Processing          │  │  │ PDF Processing          │ │
-│  │ ↓                       │  │  │ ↓                       │ │
-│  │ Mathematical Metrics    │  │  │ Vector Storage          │ │
-│  │ (ROUGE, BLEU, etc.)     │  │  │ ↓                       │ │
-│  │ ↓                       │  │  │ Query Processing        │ │
-│  │ LLM Judge Evaluation    │  │  │ ↓                       │ │
-│  │ ↓                       │  │  │ RAG Evaluation          │ │
-│  │ Quality Clustering      │  │  │                         │ │
-│  └─────────────────────────┘  │  └─────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-```
+A streamlined service for evaluating LLM-generated summaries with quality assessment and vector-based query evaluation.
 
 ## 📁 Project Structure
 
 ```
-llm-evaluation-system/
-├── 📋 CONFIGURATION
-│   ├── config.py                    # Shared configuration
-│   ├── requirements.txt             # Dependencies
-│   └── README.md                    # This file
-│
-├── 🎯 MAIN SYSTEMS
-│   ├── main.py                      # Unified entry point (both systems)
-│   │
-│   ├── 📝 SUMMARY EVALUATION (Original POC)
-│   ├── mathematical_metrics.py      # ROUGE, BLEU, semantic similarity
-│   ├── llm_judge.py                 # LLM-as-judge evaluation
-│   ├── clustering_model.py          # Quality categorization
-│   │
-│   └── 🔍 RAG Q&A EVALUATION (New)
-│       ├── simple_pdf_processor.py  # PDF processing (any documents)
-│       ├── vector_store_manager.py  # Vector storage & retrieval
-│       ├── simple_rag_agent.py      # Query processing & response generation
-│       └── rag_evaluator.py         # RAG-specific evaluation metrics
-│
-├── 🧪 TESTING & UTILITIES
-│   ├── simple_test_system.py        # Comprehensive RAG testing
-│   ├── quick_simple_test.py         # Quick RAG validation
-│   └── verify_config.py             # Configuration verification
-│
-├── 📁 DATA & STORAGE
-│   ├── sample_pdfs/                 # Input PDF documents
-│   ├── vector_db/                   # Vector database (auto-created)
-│   └── results/                     # Evaluation outputs (auto-created)
+├── main.py           # Entry point (train/inference/vector-query modes)
+├── processor.py      # PDF processing & summary generation
+├── metrics_evals.py  # ROUGE metrics & LLM judge evaluation
+├── model.py          # Quality assessment model
+├── vector_index.py   # Vector search for query evaluation
+├── config.py         # Configuration settings
+├── requirements.txt  # Dependencies
+└── README.md         # This file
 ```
 
-## 🚀 Quick Start
-
-### Prerequisites
-- Python 3.8+
-- OpenAI API key
-- PDF documents for evaluation
-
-### 1. Installation
+## 🚀 Installation
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd llm-evaluation-system
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+# 1. Install dependencies
 pip install -r requirements.txt
+
+# 2. Set OpenAI API key
+export OPENAI_API_KEY="your-api-key-here"
 ```
 
-### 2. Configuration
+## 📋 Requirements
+
+```
+pandas
+numpy
+scikit-learn
+PyPDF2
+openai
+rouge-score
+sentence-transformers
+faiss-cpu
+requests
+```
+
+## 🔍 Testing Vector Index
+
+**Simple Testing with Saved Index:**
+```bash
+# First time - builds and saves index
+python main.py --mode vector-query_test --vector-db-dir my_index --index-dir pdfs/ --query "test" --model model.pkl
+
+# Subsequent times - reuses saved index
+python main.py --mode vector-query_test --vector-db-dir my_index --query "new query" --model model.pkl
+
+# If index is corrupted, rebuild:
+rm -rf my_index/
+python main.py --mode vector-query_test --vector-db-dir my_index --index-dir pdfs/ --query "test" --model model.pkl
+```
+
+## 🎯 Usage
+
+### 1. Training Mode (Steps 1-4)
+Train a quality assessment model on your PDF documents:
 
 ```bash
-# Set your OpenAI API key
-export OPENAI_API_KEY="your_openai_api_key_here"
+# Using local PDFs
+python main.py --mode train --source /path/to/pdfs/ --model quality_model.pkl
 
-# On Windows:
-set OPENAI_API_KEY=your_openai_api_key_here
+# Using URLs
+python main.py --mode train --source "https://url1.pdf,https://url2.pdf" --model quality_model.pkl
 ```
 
-### 3. Add Documents
+**What it does:**
+- Downloads/loads PDFs
+- Generates 3-level summaries (high/medium/low)
+- Computes mathematical metrics (ROUGE, semantic similarity)
+- Evaluates with LLM judge (relevance, coherence, accuracy, etc.)
+- Trains unsupervised model
+- Saves model to .pkl file
+
+### 2. Inference Mode (Step 5)
+Evaluate a single document:
 
 ```bash
-# Create PDF directory
-mkdir sample_pdfs
-
-# Add your PDF files
-cp your_documents/*.pdf sample_pdfs/
+python main.py --mode inference --document test.pdf --model quality_model.pkl
 ```
 
-### 4. Quick Test
+**Output:**
+```
+Document: test.pdf
+Quality Score: 7.8/10
+Confidence: 89%
+Summaries:
+  High-level: [1-2 sentence summary]
+  Medium-level: [paragraph summary]
+Key Metrics:
+  Mathematical:
+    avg_rouge: 0.823
+    avg_semantic: 0.756
+    medium_rougeL: 0.812
+  LLM Judge:
+    relevance: 8.5/10
+    coherence: 7.8/10
+    accuracy: 8.2/10
+    Overall: 8.1/10
+```
+
+### 3. Vector Query Mode (Step 6)
+Evaluate LLM responses using reference documents:
 
 ```bash
-# Quick RAG system test
-python quick_simple_test.py
+# Standard mode (rebuilds index each time)
+python main.py --mode vector-query \
+  --index-dir reference_docs/ \
+  --query "What is attention mechanism?" \
+  --model quality_model.pkl
 
-# Verify configuration
-python verify_config.py
+# Test mode (saves/reuses index)
+python main.py --mode vector-query_test \
+  --vector-db-dir vector_db \
+  --index-dir sample_pdfs/ \
+  --query "What is attention mechanism?" \
+  --model quality_model.pkl
+
+# Subsequent runs (uses saved index)
+python main.py --mode vector-query_test \
+  --vector-db-dir vector_db \
+  --query "Explain transformers" \
+  --model quality_model.pkl
 ```
 
-## 📖 Usage Guide
+**Output:**
+```
+📂 Loading existing index from vector_db/vector_index.pkl
+Query: What is attention mechanism?
+LLM Response: [generated response]
+Found 3 relevant references
 
-### 🎯 Unified System (Both Evaluations)
+📊 Results:
+Quality Score: 8.2/10
+1. attention_paper.pdf (similarity: 0.892)
+2. transformer_guide.pdf (similarity: 0.834)
+3. bert_explained.pdf (similarity: 0.756)
+```
 
-Run both summary evaluation and RAG Q&A evaluation:
+## 🧪 Testing
+
+### Quick Test Without Real PDFs
+
+```python
+# test_example.py
+import numpy as np
+import pandas as pd
+from model import QualityModel
+
+# Create synthetic data
+data = {
+    'document': ['doc1.pdf', 'doc2.pdf', 'doc3.pdf'],
+    'high_rouge1': [0.8, 0.6, 0.4],
+    'medium_rouge1': [0.85, 0.65, 0.45],
+    'low_rouge1': [0.9, 0.7, 0.5],
+    'avg_rouge': [0.85, 0.65, 0.45],
+    'avg_semantic': [0.9, 0.7, 0.5]
+}
+
+df = pd.DataFrame(data)
+
+# Train model
+model = QualityModel()
+model.train(df)
+model.save('test_model.pkl')
+
+# Test prediction
+test_metrics = {
+    'high_rouge1': 0.75,
+    'medium_rouge1': 0.8,
+    'low_rouge1': 0.85,
+    'avg_rouge': 0.8,
+    'avg_semantic': 0.82
+}
+
+score, confidence = model.predict(test_metrics)
+print(f"Quality Score: {score:.1f}/10, Confidence: {confidence:.1%}")
+```
+
+### Sample URLs for Testing
 
 ```bash
-python main.py --pdfs sample_pdfs/ --output results/ --mode both
+# arXiv papers (computer science)
+python main.py --mode train --source \
+"https://arxiv.org/pdf/2005.14165.pdf,\
+https://arxiv.org/pdf/1706.03762.pdf,\
+https://arxiv.org/pdf/1810.04805.pdf" \
+--model arxiv_model.pkl
 ```
 
-### 📝 Summary Evaluation Only
-
-Evaluate LLM-generated summaries using mathematical metrics and LLM-as-judge:
-
-```bash
-python main.py --pdfs sample_pdfs/ --output results/ --mode summary
-```
-
-**Features:**
-- ROUGE scores (1, 2, L)
-- BLEU scores
-- Semantic similarity
-- LLM judge evaluation (relevance, coherence, fluency, factual accuracy, completeness)
-- Quality clustering (Low/Medium/High)
-
-### 🔍 RAG Q&A Evaluation Only
-
-Query documents and evaluate response quality:
-
-```bash
-python main.py --pdfs sample_pdfs/ --output results/ --mode rag
-```
-
-**Features:**
-- Vector-based document storage
-- Natural language querying
-- Context relevance evaluation
-- Response faithfulness assessment
-- Answer relevance scoring
-- Completeness evaluation
-
-### 🧪 Standalone RAG Testing
-
-For detailed RAG system testing with custom queries:
-
-```bash
-# Comprehensive testing with customizable queries
-python simple_test_system.py
-
-# Quick validation test
-python quick_simple_test.py
-```
-
-## ⚙️ Configuration Options
+## ⚙️ Configuration
 
 Edit `config.py` to customize:
 
-### LLM Settings
-```python
-SUMMARY_MODEL = "gpt-3.5-turbo"    # Model for summary generation
-JUDGE_MODEL = "gpt-4"              # Model for evaluation
-```
+- **OpenAI settings**: Model name, temperature
+- **Summary levels**: Prompts and token limits
+- **Clustering**: Number of quality categories
+- **Vector search**: Embedding model, number of results
 
-### Summary Evaluation Weights
+### Key Settings:
+
 ```python
+# config.py
+OPENAI_MODEL = "gpt-3.5-turbo"  # For summaries
+JUDGE_MODEL = "gpt-4"  # For evaluation
+N_CLUSTERS = 3  # Quality levels: Low/Medium/High
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Sentence transformer
+
+# LLM Judge criteria (with weights)
 JUDGE_CRITERIA = {
-    "relevance": 0.25,
-    "coherence": 0.20,
-    "fluency": 0.15,
-    "factual_accuracy": 0.25,
-    "completeness": 0.15
+    "relevance": {"weight": 0.25, ...},
+    "coherence": {"weight": 0.20, ...},
+    "fluency": {"weight": 0.15, ...},
+    "factual_accuracy": {"weight": 0.25, ...},
+    "completeness": {"weight": 0.15, ...}
 }
 ```
 
-### RAG Evaluation Weights
-```python
-RAG_EVALUATION_WEIGHTS = {
-    "context_relevance": 0.25,
-    "faithfulness": 0.30,
-    "answer_relevance": 0.25,
-    "completeness": 0.20
-}
-```
+## 📊 Understanding the Output
 
-### Vector Store Settings
-```python
-CHUNK_SIZE = 1000           # Text chunk size for vector storage
-CHUNK_OVERLAP = 200         # Overlap between chunks
-SIMILARITY_SEARCH_K = 5     # Number of chunks to retrieve
-```
+### Quality Scores (0-10)
+- **8-10**: High quality (accurate, coherent, complete)
+- **5-7**: Medium quality (good but with minor issues)
+- **0-4**: Low quality (significant problems)
 
-## 📊 Output Files
+### Confidence Scores
+- Based on distance to cluster centers
+- Higher confidence = more typical of the quality category
 
-### Summary Evaluation Results
-- `summary_evaluation_results.csv` - Detailed metrics for all documents
-- `summary_quality_categories.csv` - Quality classifications
-- Mathematical metrics (ROUGE, BLEU, semantic similarity)
-- LLM judge scores for each criterion
-- Overall quality scores and categories
-
-### RAG Evaluation Results
-- `rag_evaluation_results.csv` - Query-response evaluation metrics
-- Context relevance, faithfulness, answer relevance, completeness scores
-- Source attribution and response metadata
-- Performance analysis by query type
-
-### Combined Report  
-- `combined_report.html` - Executive summary with key insights
-
-## 🎨 Customization Examples
-
-### Custom Test Queries for RAG System
-
-Edit `simple_test_system.py`:
-
-```python
-def get_sample_test_queries():
-    return [
-        # Business Documents
-        "What are the key performance indicators mentioned?",
-        "What are the main recommendations?",
-        "What challenges are identified?",
-        
-        # Technical Documents  
-        "What are the system requirements?",
-        "How does the implementation work?",
-        "What troubleshooting steps are provided?",
-        
-        # Research Documents
-        "What methodology is used?",
-        "What are the main findings?",
-        "What are the limitations?",
-        
-        # Your Custom Queries
-        "YOUR SPECIFIC QUESTION HERE"
-    ]
-```
-
-### Custom Evaluation Criteria
-
-For specialized domains, modify the evaluation criteria:
-
-```python
-# For technical documentation
-JUDGE_CRITERIA = {
-    "technical_accuracy": 0.30,
-    "completeness": 0.25,
-    "clarity": 0.20,
-    "actionability": 0.25
-}
-
-# For business reports
-RAG_EVALUATION_WEIGHTS = {
-    "relevance_to_business": 0.30,
-    "factual_accuracy": 0.35,
-    "actionable_insights": 0.20,
-    "completeness": 0.15
-}
-```
-
-## 📈 Performance Benchmarks
-
-### Expected Performance Ranges
-
-**Summary Evaluation:**
-- ROUGE-1: 0.3-0.7 (higher = better overlap)
-- ROUGE-L: 0.2-0.6 (higher = better structure)
-- BLEU: 0.1-0.4 (higher = better n-gram precision)
-- LLM Judge: 5-9/10 (higher = better quality)
-
-**RAG Evaluation:**
-- Context Relevance: 0.6-0.9 (higher = better retrieval)
-- Faithfulness: 0.7-0.95 (higher = more accurate)
-- Answer Relevance: 0.65-0.85 (higher = more relevant)
-- Overall RAG Score: 0.65-0.85 (higher = better quality)
-
-### Quality Thresholds
-- **Excellent**: RAG Score ≥ 0.8
-- **Good**: RAG Score 0.65-0.8
-- **Fair**: RAG Score 0.5-0.65
-- **Poor**: RAG Score < 0.5
+### Metrics Explained
+- **ROUGE**: Word overlap with reference text
+- **Semantic Similarity**: Meaning preservation (0-1)
+- **Compression Ratio**: Summary length vs original
+- **LLM Judge Scores** (1-10):
+  - **Relevance**: How well summary captures main points
+  - **Coherence**: Logical flow and structure
+  - **Fluency**: Language quality and readability
+  - **Factual Accuracy**: Correctness vs reference
+  - **Completeness**: Coverage of key information
 
 ## 🔧 Troubleshooting
 
+### Vector Index Error Fix
+If you see: `ValueError: The truth value of an array...`
+```bash
+# Quick fix:
+rm -rf vector_db/
+python main.py --mode vector-query_test --vector-db-dir vector_db --index-dir your_pdfs/ --query "test" --model quality_model.pkl
+```
+
 ### Common Issues
 
-**1. Config Attribute Error**
-```bash
-AttributeError: module 'config' has no attribute 'JUDGE_CRITERIA'
-```
-**Solution:** Run `python verify_config.py` to check configuration
+1. **No OpenAI API key**
+   ```bash
+   export OPENAI_API_KEY="sk-..."
+   ```
 
-**2. OpenAI API Error**
+2. **PDF extraction errors**
+   - Ensure PDFs are text-based (not scanned images)
+   - Try different PDFs or use the URL download option
+
+3. **Out of memory**
+   - Process fewer PDFs at once
+   - Reduce batch size in config.py
+
+4. **Import errors**
+   ```bash
+   pip install --upgrade -r requirements.txt
+   ```
+
+5. **Vector index errors**
+   ```bash
+   # Check if index is corrupted
+   python fix_vector_index.py vector_db/vector_index.pkl
+   
+   # Rebuild if needed
+   python fix_vector_index.py vector_db/vector_index.pkl your_pdfs/
+   ```
+
+## 📈 Extending the System
+
+### Test Multiple Queries
 ```bash
-Error: Invalid API key
-```
-**Solution:** Verify API key is set correctly:
-```bash
-echo $OPENAI_API_KEY  # Should show your key
+# Use test_vector_simple.py
+python test_vector_simple.py
+
+# Or use the shell script
+./test_vector.sh
 ```
 
-**3. No Documents Processed**
-```bash
-❌ No documents were processed
-```
-**Solution:** 
-- Check PDF files are in `sample_pdfs/` directory
-- Verify PDFs contain extractable text (not scanned images)
-- Run `python verify_config.py` for detailed diagnostics
-
-**4. Vector Database Issues**
-```bash
-Collection [documents] does not exist
-```
-**Solution:** Delete and recreate vector database:
-```bash
-rm -rf vector_db/
-python quick_simple_test.py
-```
-
-**5. Memory Issues with Large PDFs**
-```bash
-Out of memory error
-```
-**Solution:** Reduce chunk size in `config.py`:
+### Add New Metrics
+Edit `metrics.py`:
 ```python
-CHUNK_SIZE = 500
-SIMILARITY_SEARCH_K = 3
+def compute_custom_metric(self, summary, reference):
+    # Your metric logic here
+    return score
 ```
 
-### Debug Commands
+### Change Quality Categories
+Edit `config.py`:
+```python
+N_CLUSTERS = 5  # More granular: Very Low/Low/Medium/High/Very High
+QUALITY_LABELS = ["Very Low", "Low", "Medium", "High", "Very High"]
+```
+
+### Custom Summary Prompts
+Edit `config.py`:
+```python
+SUMMARY_LEVELS = {
+    'executive': {
+        'prompt': "Write an executive summary:",
+        'max_tokens': 200,
+        'input_chars': 8000
+    }
+}
+```
+
+## 🎉 Example Workflow
 
 ```bash
-# Check system configuration
-python verify_config.py
+# 1. Train model
+python main.py --mode train --source my_papers/ --model my_model.pkl
 
-# Test PDF processing only
-python -c "
-from simple_pdf_processor import SimplePDFProcessor
-processor = SimplePDFProcessor()
-docs = processor.process_pdfs('sample_pdfs')
-print(f'Processed {len(docs)} documents')
-"
+# 2. Test on single document
+python main.py --mode inference --document new_paper.pdf --model my_model.pkl
 
-# Test vector storage
-python -c "
-from vector_store_manager import VectorStoreManager
-vm = VectorStoreManager()
-stats = vm.get_collection_stats()
-print(f'Vector store: {stats}')
-"
+# 3. Vector search - first time (builds index)
+python main.py --mode vector-query_test \
+  --vector-db-dir my_vector_db \
+  --index-dir reference_docs/ \
+  --query "What is BERT?" \
+  --model my_model.pkl
+
+# 4. Vector search - subsequent times (reuses index)
+python main.py --mode vector-query_test \
+  --vector-db-dir my_vector_db \
+  --query "Explain attention mechanism" \
+  --model my_model.pkl
 ```
 
-## 🔬 Advanced Usage
+## 📝 License
 
-### Batch Processing Multiple Directories
-
-```python
-import os
-from pathlib import Path
-
-# Process multiple PDF directories
-pdf_directories = ["docs1/", "docs2/", "docs3/"]
-
-for pdf_dir in pdf_directories:
-    if os.path.exists(pdf_dir):
-        os.system(f"python main.py --pdfs {pdf_dir} --output results_{Path(pdf_dir).name} --mode both")
-```
-
-### Custom Evaluation Pipeline
-
-```python
-from simple_pdf_processor import SimplePDFProcessor
-from vector_store_manager import VectorStoreManager
-from simple_rag_agent import SimpleRAGAgent
-from rag_evaluator import RAGEvaluator
-
-# Custom processing pipeline
-processor = SimplePDFProcessor()
-documents = processor.process_pdfs("sample_pdfs")
-
-# Custom queries based on document type
-if "technical" in documents[0]['text'].lower():
-    queries = ["What are the technical specifications?", "How does it work?"]
-elif "business" in documents[0]['text'].lower():
-    queries = ["What are the KPIs?", "What are the recommendations?"]
-else:
-    queries = ["What is the main content?", "What are key points?"]
-
-# Process and evaluate
-vector_manager = VectorStoreManager()
-vector_manager.add_documents(documents)
-agent = SimpleRAGAgent(vector_manager)
-evaluator = RAGEvaluator()
-
-for query in queries:
-    response = agent.query(query)
-    metrics = evaluator.evaluate_response(response)
-    print(f"Query: {query}")
-    print(f"Score: {metrics['rag_score']:.3f}")
-```
-
-## 📚 API Reference
-
-### SimplePDFProcessor
-```python
-processor = SimplePDFProcessor()
-documents = processor.process_pdfs(pdf_directory)
-```
-
-### SimpleRAGAgent
-```python
-agent = SimpleRAGAgent(vector_manager)
-response = agent.query(question, k=5)  # k = number of chunks to retrieve
-```
-
-### RAGEvaluator
-```python
-evaluator = RAGEvaluator()
-metrics = evaluator.evaluate_response(query_response)
-# Returns: context_relevance, faithfulness, answer_relevance, completeness, rag_score
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- OpenAI for GPT models
-- ChromaDB for vector storage
-- Sentence Transformers for embeddings
-- ROUGE and BLEU evaluation metrics
-- PyPDF2 for PDF processing
-
-## 📞 Support
-
-For issues and questions:
-1. Check the [Troubleshooting](#-troubleshooting) section
-2. Run `python verify_config.py` for diagnostics
-3. Create an issue in the repository
-
----
-
-**Version:** 2.0  
-**Last Updated:** 2024  
-**Compatibility:** Python 3.8+, OpenAI API v1.0+
+MIT License - Feel free to modify and use!
