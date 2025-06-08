@@ -1,181 +1,176 @@
-"""
-Combined Metrics and LLM Judge Evaluation
-"""
+"""Metrics Calculation and LLM Judge Evaluation"""
 
 import numpy as np
-import pandas as pd
-import re
-import time
-from typing import List, Dict
 from rouge_score import rouge_scorer
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import openai
+import re
 import config
 
-class MetricsAndEvals:
+class MetricsEvaluator:
     def __init__(self):
-        # Metrics components
-        self.rouge = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'])
-        try:
-            self.embedder = SentenceTransformer(config.EMBEDDING_MODEL)
-        except:
-            self.embedder = None
-
-        # LLM Judge component
+        self.rouge_scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
+        self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
-        self.judge_criteria = list(config.JUDGE_CRITERIA.keys())
 
-    def compute_all_metrics(self, documents: List[Dict]) -> pd.DataFrame:
-        """Compute both metrics and LLM evaluations for all documents"""
-        all_results = []
+    def evaluate_batch(self, documents):
+        """Evaluate all documents"""
+        results = []
 
-        for i, doc in enumerate(documents):
-            print(f"Processing {i+1}/{len(documents)}: {doc['name']}")
+        for doc in documents:
+            metrics = self.evaluate_document(doc)
+            result = {
+                'document': doc['document'],
+                **metrics,
+                'quality': None  # Will be filled by model
+            }
 
-            # Compute mathematical metrics
-            metrics = self.compute_single_metrics(doc)
+            # Include intended quality if present (for training data)
+            if 'summary_quality' in doc:
+                result['intended_quality'] = doc['summary_quality']
 
-            # Compute LLM judge evaluations
-            evals = self.evaluate_with_judge(doc)
+            results.append(result)
 
-            # Combine results
-            combined = {**metrics, **evals}
-            combined['document'] = doc['name']
+        return results
 
-            all_results.append(combined)
-
-        return pd.DataFrame(all_results)
-
-    def compute_single_metrics(self, doc: Dict) -> Dict:
-        """Compute mathematical metrics for single document"""
-        metrics = {}
-
-        # Compute for each summary level
-        for level in ['high', 'medium', 'low']:
-            summary = doc[f'summary_{level}']
-            reference = doc['abstract']
-
-            # ROUGE scores
-            rouge = self.rouge.score(reference, summary)
-            metrics[f'{level}_rouge1'] = rouge['rouge1'].fmeasure
-            metrics[f'{level}_rouge2'] = rouge['rouge2'].fmeasure
-            metrics[f'{level}_rougeL'] = rouge['rougeL'].fmeasure
-
-            # Semantic similarity
-            if self.embedder:
-                ref_emb = self.embedder.encode([reference])
-                sum_emb = self.embedder.encode([summary])
-                sim = cosine_similarity(ref_emb, sum_emb)[0][0]
-                metrics[f'{level}_semantic_sim'] = sim
-
-            # Length ratio
-            metrics[f'{level}_compression'] = len(summary.split()) / len(reference.split())
-
-        # Average scores
-        metrics['avg_rouge'] = np.mean([metrics[f'{l}_rougeL'] for l in ['high', 'medium', 'low']])
-        metrics['avg_semantic'] = np.mean([metrics[f'{l}_semantic_sim'] for l in ['high', 'medium', 'low']
-                                          if f'{l}_semantic_sim' in metrics])
-
-        return metrics
-
-    def evaluate_with_judge(self, doc: Dict) -> Dict:
-        """Evaluate document using LLM judge"""
-        # Use configured summary level for evaluation
-        summary = doc[f'summary_{config.JUDGE_SUMMARY_LEVEL}']
+    def evaluate_document(self, doc):
+        """Evaluate single document"""
+        summary = doc['summary']
         reference = doc['abstract']
 
-        evals = {}
+        # Mathematical metrics
+        rouge_scores = self.calculate_rouge(summary, reference)
+        semantic_sim = self.calculate_semantic_similarity(summary, reference)
 
-        # Evaluate each criterion
-        for criterion in self.judge_criteria:
-            score = self._evaluate_criterion(summary, reference, criterion)
-            evals[f'{criterion}_score'] = score
-            time.sleep(0.2)  # Rate limiting
+        # LLM judge scores
+        judge_scores = self.llm_judge_evaluate(summary, reference)
 
-        # Calculate overall weighted score
-        evals['overall_score'] = self._calculate_overall_score(evals)
+        # Combine all metrics
+        return {
+            **rouge_scores,
+            'semantic_similarity': semantic_sim,
+            'compression_ratio': len(summary.split()) / len(reference.split()) if reference else 0,
+            **judge_scores,
+            'overall_score': self.calculate_overall_score({**rouge_scores, **judge_scores})
+        }
 
-        return evals
+    def evaluate_answer(self, question, answer, chunks):
+        """Evaluate answer quality for Q&A"""
+        # Join chunks for reference
+        reference = ' '.join(chunks)
 
-    def _evaluate_criterion(self, summary: str, reference: str, criterion: str) -> float:
-        """Evaluate a single criterion using LLM"""
-        criterion_config = config.JUDGE_CRITERIA[criterion]
+        # Calculate metrics
+        rouge_scores = self.calculate_rouge(answer, reference)
+        semantic_sim = self.calculate_semantic_similarity(answer, reference)
 
+        # LLM judge for answer quality
+        judge_scores = self.llm_judge_answer(question, answer, chunks)
+
+        return {
+            **rouge_scores,
+            'semantic_similarity': semantic_sim,
+            **judge_scores,
+            'overall_score': self.calculate_overall_score({**rouge_scores, **judge_scores})
+        }
+
+    def calculate_rouge(self, text, reference):
+        """Calculate ROUGE scores"""
+        try:
+            scores = self.rouge_scorer.score(reference, text)
+            return {
+                'rouge_1': scores['rouge1'].fmeasure,
+                'rouge_2': scores['rouge2'].fmeasure,
+                'rouge_l': scores['rougeL'].fmeasure
+            }
+        except:
+            return {'rouge_1': 0.0, 'rouge_2': 0.0, 'rouge_l': 0.0}
+
+    def calculate_semantic_similarity(self, text, reference):
+        """Calculate semantic similarity"""
+        try:
+            text_emb = self.sentence_model.encode([text])
+            ref_emb = self.sentence_model.encode([reference])
+            similarity = cosine_similarity(text_emb, ref_emb)[0][0]
+            return float(similarity)
+        except:
+            return 0.0
+
+    def llm_judge_evaluate(self, summary, reference):
+        """LLM judge evaluation"""
+        scores = {}
+
+        for criterion in config.JUDGE_CRITERIA:
+            try:
+                prompt = self.get_evaluation_prompt(criterion, summary, reference)
+
+                response = self.client.chat.completions.create(
+                    model=config.JUDGE_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=100,
+                    temperature=0.1
+                )
+
+                score = self.parse_score(response.choices[0].message.content)
+                scores[f'{criterion}_score'] = score
+
+            except Exception as e:
+                print(f"Judge error for {criterion}: {e}")
+                scores[f'{criterion}_score'] = 5.0
+
+        return scores
+
+    def llm_judge_answer(self, question, answer, chunks):
+        """Judge answer quality"""
         prompt = f"""
-        {criterion_config['prompt']}
+        Rate this answer on relevance (1-10) and coherence (1-10).
         
-        Abstract: {reference}
+        Question: {question}
+        Answer: {answer}
+        Context: {' '.join(chunks[:2])}
         
-        Summary: {summary}
-        
-        Provide only a numerical score from 1-10.
-        Score: """
+        Format: Relevance: X/10, Coherence: Y/10
+        """
 
         try:
             response = self.client.chat.completions.create(
                 model=config.JUDGE_MODEL,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=50,
+                max_tokens=100,
                 temperature=0.1
             )
 
-            response_text = response.choices[0].message.content
-            return self._parse_score(response_text)
+            text = response.choices[0].message.content
+            relevance = self.parse_score(text, 'relevance')
+            coherence = self.parse_score(text, 'coherence')
 
-        except Exception as e:
-            print(f"    Warning: Error evaluating {criterion}: {e}")
-            return 5.0  # Default score
+            return {
+                'relevance_score': relevance,
+                'coherence_score': coherence
+            }
+        except:
+            return {'relevance_score': 5.0, 'coherence_score': 5.0}
 
-    def _parse_score(self, response_text: str) -> float:
-        """Parse score from LLM response"""
-        # Look for numbers in the response
-        numbers = re.findall(r'\b([1-9]|10)\b', response_text)
+    def get_evaluation_prompt(self, criterion, summary, reference):
+        """Get criterion-specific prompt"""
+        prompts = {
+            'relevance': f"Rate relevance of summary to abstract (1-10):\nAbstract: {reference}\nSummary: {summary}\nScore:",
+            'coherence': f"Rate coherence and flow of summary (1-10):\nSummary: {summary}\nScore:",
+            'completeness': f"Rate completeness of summary vs abstract (1-10):\nAbstract: {reference}\nSummary: {summary}\nScore:"
+        }
+        return prompts.get(criterion, f"Rate {criterion} (1-10):\nSummary: {summary}\nScore:")
 
-        if numbers:
-            score = float(numbers[0])
-            return max(1, min(10, score))  # Clamp to 1-10
+    def parse_score(self, text, keyword=None):
+        """Parse score from text"""
+        pattern = f'{keyword}.*?(\\d+)' if keyword else r'(\d+)'
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            score = float(match.group(1))
+            return max(1, min(10, score))
+        return 5.0
 
-        return 5.0  # Default if no score found
-
-    def _calculate_overall_score(self, evals: Dict) -> float:
+    def calculate_overall_score(self, metrics):
         """Calculate weighted overall score"""
-        total_score = 0
-        total_weight = 0
-
-        for criterion, config_item in config.JUDGE_CRITERIA.items():
-            score = evals.get(f'{criterion}_score')
-            if score is not None:
-                weight = config_item['weight']
-                total_score += score * weight
-                total_weight += weight
-
-        return total_score / total_weight if total_weight > 0 else 0
-
-    def evaluate_single_document(self, doc: Dict) -> Dict:
-        """Evaluate a single document (for inference)"""
-        # Get mathematical metrics
-        metrics = self.compute_single_metrics(doc)
-
-        # Get LLM evaluations
-        evals = self.evaluate_with_judge(doc)
-
-        # Combine and return
-        return {**metrics, **evals}
-
-    def get_feature_columns(self) -> List[str]:
-        """Get all feature column names for model training"""
-        # Mathematical metrics
-        metric_cols = []
-        for level in ['high', 'medium', 'low']:
-            for metric in ['rouge1', 'rouge2', 'rougeL', 'semantic_sim', 'compression']:
-                metric_cols.append(f'{level}_{metric}')
-
-        # Average metrics
-        metric_cols.extend(['avg_rouge', 'avg_semantic'])
-
-        # Judge evaluation scores
-        eval_cols = [f'{criterion}_score' for criterion in self.judge_criteria]
-        eval_cols.append('overall_score')
-
-        return metric_cols + eval_cols
+        # Simple average of available scores
+        scores = [v for k, v in metrics.items() if 'score' in k or 'rouge' in k]
+        return np.mean(scores) * 10 if scores else 5.0

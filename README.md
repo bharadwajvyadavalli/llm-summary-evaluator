@@ -1,11 +1,58 @@
-# LLM Evaluation Service
+# LLM Evaluation System
 
-A streamlined service for evaluating LLM-generated summaries with quality assessment and vector-based query evaluation.
+A streamlined system for evaluating LLM-generated document summaries and question-answering capabilities using mathematical metrics, LLM judge evaluation, and quality categorization.
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Set OpenAI API key
+export OPENAI_API_KEY="your-api-key-here"
+```
+
+### Usage Modes
+
+#### 1. Training Mode
+Train a quality assessment model from PDF documents:
+
+```bash
+python main.py train --input pdfs/training/ --output output/
+```
+
+This will:
+- Process PDFs and extract abstracts
+- **Generate 3 different quality summaries per document (High/Medium/Low)**
+- Calculate metrics (ROUGE, semantic similarity) for each summary
+- Train unsupervised clustering model on diverse quality examples
+- Save model as `output/quality_model.pkl`
+- Generate training report showing cluster alignment
+
+#### 2. Inference Mode
+Evaluate new PDFs using trained model:
+
+```bash
+python main.py inference --input pdfs/test/ --model output/quality_model.pkl --output results/
+```
+
+#### 3. Query Mode
+Answer questions using vector search and evaluate response quality:
+
+```bash
+# Single question
+python main.py query --pdfs pdfs/docs/ --model output/quality_model.pkl --queries "What is machine learning?" --output results/
+
+# Multiple questions from CSV
+python main.py query --pdfs pdfs/docs/ --model output/quality_model.pkl --queries questions.csv --output results/
+```
 
 ## 📁 Project Structure
 
 ```
-├── main.py           # Entry point (train/inference/vector-query modes)
+├── main.py           # Entry point with train/inference/query modes
 ├── processor.py      # PDF processing & summary generation
 ├── metrics_evals.py  # ROUGE metrics & LLM judge evaluation
 ├── model.py          # Quality assessment model
@@ -15,332 +62,160 @@ A streamlined service for evaluating LLM-generated summaries with quality assess
 └── README.md         # This file
 ```
 
-## 🚀 Installation
+## 📊 Features
 
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+### PDF Processing & Storage
+- Extracts text and abstracts from PDFs
+- Generates summaries using configurable prompts
+- Stores data as CSV (text, abstract, summary)
 
-# 2. Set OpenAI API key
-export OPENAI_API_KEY="your-api-key-here"
-```
+### Evaluation & Categorization
+- Computes ROUGE scores, semantic similarity
+- LLM judge evaluation (relevance, coherence, completeness)
+- Unsupervised clustering into High/Medium/Low quality
+- Saves trained model as .pkl file
 
-## 📋 Requirements
+### Question Answering & Scoring
+- Creates vector indexes from PDFs
+- Retrieves relevant chunks for questions
+- Generates answers using LLM
+- Evaluates answer quality
+- Stores all outputs (question, answer, chunks, metrics, quality)
 
-```
-pandas
-numpy
-scikit-learn
-PyPDF2
-openai
-rouge-score
-sentence-transformers
-faiss-cpu
-requests
-```
+### Reporting & Export
+- Professional HTML reports with statistics
+- CSV exports for further analysis
+- Quality distribution visualizations
 
-## 🔍 Testing Vector Index
+## 📝 Input/Output
 
-**Simple Testing with Saved Index:**
-```bash
-# First time - builds and saves index
-python main.py --mode vector-query_test --vector-db-dir my_index --index-dir pdfs/ --query "test" --model model.pkl
+### Training Input
+- Directory of PDF research papers
+- Papers should have extractable abstracts
 
-# Subsequent times - reuses saved index
-python main.py --mode vector-query_test --vector-db-dir my_index --query "new query" --model model.pkl
+### Training Output
+- `quality_model.pkl` - Trained model
+- `training_report.html` - Summary report with:
+  - Distribution of generated quality levels
+  - Confusion matrix showing model clustering vs intended quality
+  - Performance metrics
 
-# If index is corrupted, rebuild:
-rm -rf my_index/
-python main.py --mode vector-query_test --vector-db-dir my_index --index-dir pdfs/ --query "test" --model model.pkl
-```
-
-## 🎯 Usage
-
-### 1. Training Mode (Steps 1-4)
-Train a quality assessment model on your PDF documents:
-
-```bash
-# Using local PDFs
-python main.py --mode train --source /path/to/pdfs/ --model quality_model.pkl
-
-# Using URLs
-python main.py --mode train --source "https://url1.pdf,https://url2.pdf" --model quality_model.pkl
-```
-
-**What it does:**
-- Downloads/loads PDFs
-- Generates 3-level summaries (high/medium/low)
-- Computes mathematical metrics (ROUGE, semantic similarity)
-- Evaluates with LLM judge (relevance, coherence, accuracy, etc.)
-- Trains unsupervised model
-- Saves model to .pkl file
-
-### 2. Inference Mode (Step 5)
-Evaluate a single document:
-
-```bash
-python main.py --mode inference --document test.pdf --model quality_model.pkl
-```
-
-**Output:**
-```
-Document: test.pdf
-Quality Score: 7.8/10
-Confidence: 89%
-Summaries:
-  High-level: [1-2 sentence summary]
-  Medium-level: [paragraph summary]
-Key Metrics:
-  Mathematical:
-    avg_rouge: 0.823
-    avg_semantic: 0.756
-    medium_rougeL: 0.812
-  LLM Judge:
-    relevance: 8.5/10
-    coherence: 7.8/10
-    accuracy: 8.2/10
-    Overall: 8.1/10
-```
-
-### 3. Vector Query Mode (Step 6)
-Evaluate LLM responses using reference documents:
-
-```bash
-# Standard mode (rebuilds index each time)
-python main.py --mode vector-query \
-  --index-dir reference_docs/ \
-  --query "What is attention mechanism?" \
-  --model quality_model.pkl
-
-# Test mode (saves/reuses index)
-python main.py --mode vector-query_test \
-  --vector-db-dir vector_db \
-  --index-dir sample_pdfs/ \
-  --query "What is attention mechanism?" \
-  --model quality_model.pkl
-
-# Subsequent runs (uses saved index)
-python main.py --mode vector-query_test \
-  --vector-db-dir vector_db \
-  --query "Explain transformers" \
-  --model quality_model.pkl
-```
-
-**Output:**
-```
-📂 Loading existing index from vector_db/vector_index.pkl
-Query: What is attention mechanism?
-LLM Response: [generated response]
-Found 3 relevant references
-
-📊 Results:
-Quality Score: 8.2/10
-1. attention_paper.pdf (similarity: 0.892)
-2. transformer_guide.pdf (similarity: 0.834)
-3. bert_explained.pdf (similarity: 0.756)
-```
-
-## 🧪 Testing
-
-### Quick Test Without Real PDFs
-
-```python
-# test_example.py
-import numpy as np
-import pandas as pd
-from model import QualityModel
-
-# Create synthetic data
-data = {
-    'document': ['doc1.pdf', 'doc2.pdf', 'doc3.pdf'],
-    'high_rouge1': [0.8, 0.6, 0.4],
-    'medium_rouge1': [0.85, 0.65, 0.45],
-    'low_rouge1': [0.9, 0.7, 0.5],
-    'avg_rouge': [0.85, 0.65, 0.45],
-    'avg_semantic': [0.9, 0.7, 0.5]
-}
-
-df = pd.DataFrame(data)
-
-# Train model
-model = QualityModel()
-model.train(df)
-model.save('test_model.pkl')
-
-# Test prediction
-test_metrics = {
-    'high_rouge1': 0.75,
-    'medium_rouge1': 0.8,
-    'low_rouge1': 0.85,
-    'avg_rouge': 0.8,
-    'avg_semantic': 0.82
-}
-
-score, confidence = model.predict(test_metrics)
-print(f"Quality Score: {score:.1f}/10, Confidence: {confidence:.1%}")
-```
-
-### Sample URLs for Testing
-
-```bash
-# arXiv papers (computer science)
-python main.py --mode train --source \
-"https://arxiv.org/pdf/2005.14165.pdf,\
-https://arxiv.org/pdf/1706.03762.pdf,\
-https://arxiv.org/pdf/1810.04805.pdf" \
---model arxiv_model.pkl
-```
+### Query Output
+- `query_results.csv` - Q&A evaluations
+- `query_report.html` - Interactive report
 
 ## ⚙️ Configuration
 
 Edit `config.py` to customize:
 
-- **OpenAI settings**: Model name, temperature
-- **Summary levels**: Prompts and token limits
-- **Clustering**: Number of quality categories
-- **Vector search**: Embedding model, number of results
-
-### Key Settings:
-
 ```python
-# config.py
-OPENAI_MODEL = "gpt-3.5-turbo"  # For summaries
-JUDGE_MODEL = "gpt-4"  # For evaluation
-N_CLUSTERS = 3  # Quality levels: Low/Medium/High
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Sentence transformer
+# Models
+SUMMARY_MODEL = "gpt-3.5-turbo"
+JUDGE_MODEL = "gpt-4"
 
-# LLM Judge criteria (with weights)
-JUDGE_CRITERIA = {
-    "relevance": {"weight": 0.25, ...},
-    "coherence": {"weight": 0.20, ...},
-    "fluency": {"weight": 0.15, ...},
-    "factual_accuracy": {"weight": 0.25, ...},
-    "completeness": {"weight": 0.15, ...}
+# Quality-specific prompts for training
+SUMMARY_PROMPTS = {
+    "high": "Comprehensive, accurate summary...",
+    "medium": "Clear summary with basic coverage...",
+    "low": "Brief, simple summary..."
 }
+
+# Evaluation criteria
+JUDGE_CRITERIA = ['relevance', 'coherence', 'completeness']
+
+# Clustering
+N_CLUSTERS = 3  # Low, Medium, High
 ```
 
-## 📊 Understanding the Output
+### Training Strategy
 
-### Quality Scores (0-10)
-- **8-10**: High quality (accurate, coherent, complete)
-- **5-7**: Medium quality (good but with minor issues)
-- **0-4**: Low quality (significant problems)
+The system generates **3 different quality summaries** per document during training:
 
-### Confidence Scores
-- Based on distance to cluster centers
-- Higher confidence = more typical of the quality category
+1. **High Quality**: Comprehensive, detailed, academically rigorous
+2. **Medium Quality**: Good coverage but may omit technical details  
+3. **Low Quality**: Brief, basic, may miss key points
 
-### Metrics Explained
-- **ROUGE**: Word overlap with reference text
-- **Semantic Similarity**: Meaning preservation (0-1)
-- **Compression Ratio**: Summary length vs original
-- **LLM Judge Scores** (1-10):
-  - **Relevance**: How well summary captures main points
-  - **Coherence**: Logical flow and structure
-  - **Fluency**: Language quality and readability
-  - **Factual Accuracy**: Correctness vs reference
-  - **Completeness**: Coverage of key information
+This diversity helps the unsupervised clustering model learn to distinguish quality levels more effectively.
 
-## 🔧 Troubleshooting
+## 📈 Example Workflow
 
-### Vector Index Error Fix
-If you see: `ValueError: The truth value of an array...`
 ```bash
-# Quick fix:
-rm -rf vector_db/
-python main.py --mode vector-query_test --vector-db-dir vector_db --index-dir your_pdfs/ --query "test" --model quality_model.pkl
+# 1. Prepare training data
+mkdir -p pdfs/training
+# Add 50-60 research PDFs
+
+# 2. Train model
+python main.py train --input pdfs/training/ --output model/
+
+# 3. Prepare test questions
+echo "question" > questions.csv
+echo "What are the main applications of deep learning?" >> questions.csv
+echo "How does transfer learning work?" >> questions.csv
+
+# 4. Index documents for Q&A
+mkdir -p pdfs/knowledge_base
+# Add relevant PDFs
+
+# 5. Run Q&A evaluation
+python main.py query --pdfs pdfs/knowledge_base/ --model model/quality_model.pkl --queries questions.csv --output qa_results/
+
+# 6. View results
+open qa_results/query_report.html
 ```
 
-### Common Issues
+## 🔧 Advanced Usage
 
-1. **No OpenAI API key**
-   ```bash
-   export OPENAI_API_KEY="sk-..."
-   ```
+### Custom Evaluation Metrics
 
-2. **PDF extraction errors**
-   - Ensure PDFs are text-based (not scanned images)
-   - Try different PDFs or use the URL download option
+Add new metrics in `metrics_evals.py`:
 
-3. **Out of memory**
-   - Process fewer PDFs at once
-   - Reduce batch size in config.py
-
-4. **Import errors**
-   ```bash
-   pip install --upgrade -r requirements.txt
-   ```
-
-5. **Vector index errors**
-   ```bash
-   # Check if index is corrupted
-   python fix_vector_index.py vector_db/vector_index.pkl
-   
-   # Rebuild if needed
-   python fix_vector_index.py vector_db/vector_index.pkl your_pdfs/
-   ```
-
-## 📈 Extending the System
-
-### Test Multiple Queries
-```bash
-# Use test_vector_simple.py
-python test_vector_simple.py
-
-# Or use the shell script
-./test_vector.sh
-```
-
-### Add New Metrics
-Edit `metrics.py`:
 ```python
-def compute_custom_metric(self, summary, reference):
-    # Your metric logic here
+def custom_metric(self, text, reference):
+    # Your implementation
     return score
 ```
 
-### Change Quality Categories
-Edit `config.py`:
-```python
-N_CLUSTERS = 5  # More granular: Very Low/Low/Medium/High/Very High
-QUALITY_LABELS = ["Very Low", "Low", "Medium", "High", "Very High"]
-```
+### Batch Processing
 
-### Custom Summary Prompts
-Edit `config.py`:
-```python
-SUMMARY_LEVELS = {
-    'executive': {
-        'prompt': "Write an executive summary:",
-        'max_tokens': 200,
-        'input_chars': 8000
-    }
-}
-```
-
-## 🎉 Example Workflow
+Process large datasets:
 
 ```bash
-# 1. Train model
-python main.py --mode train --source my_papers/ --model my_model.pkl
-
-# 2. Test on single document
-python main.py --mode inference --document new_paper.pdf --model my_model.pkl
-
-# 3. Vector search - first time (builds index)
-python main.py --mode vector-query_test \
-  --vector-db-dir my_vector_db \
-  --index-dir reference_docs/ \
-  --query "What is BERT?" \
-  --model my_model.pkl
-
-# 4. Vector search - subsequent times (reuses index)
-python main.py --mode vector-query_test \
-  --vector-db-dir my_vector_db \
-  --query "Explain attention mechanism" \
-  --model my_model.pkl
+for dir in pdfs/batch_*; do
+    python main.py inference --input "$dir" --model model/quality_model.pkl --output "results/$(basename $dir)"
+done
 ```
 
-## 📝 License
+## 📊 Output Examples
 
-MIT License - Feel free to modify and use!
+### Quality Distribution
+- **High Quality**: Strong alignment with reference, coherent, complete
+- **Medium Quality**: Good coverage, minor issues
+- **Low Quality**: Poor relevance, missing key information
+
+### Metrics Included
+- ROUGE-1, ROUGE-2, ROUGE-L scores
+- Semantic similarity (cosine similarity of embeddings)
+- Compression ratio
+- LLM judge scores (relevance, coherence, completeness)
+- Overall quality score (weighted average)
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+1. **API Rate Limits**: Reduce `BATCH_SIZE` in config.py
+2. **Memory Issues**: Process PDFs in smaller batches
+3. **PDF Extraction Errors**: Ensure PDFs are text-based, not scanned images
+
+### Debug Mode
+
+Enable verbose logging:
+```python
+# In any script
+import logging
+logging.basicConfig(level=logging.DEBUG)
+```
+
+## 📄 License
+
+MIT License - Feel free to adapt for your needs!

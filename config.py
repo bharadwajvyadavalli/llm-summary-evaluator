@@ -1,69 +1,56 @@
-"""
-Configuration settings for LLM Evaluation Service
-"""
+"""Configuration Settings"""
 
 import os
 
 # API Settings
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = "gpt-3.5-turbo"
-
-# Summary Generation Settings
-SUMMARY_LEVELS = {
-    'high': {
-        'prompt': "Summarize in 1-2 sentences:",
-        'max_tokens': 50,
-        'input_chars': 2000
-    },
-    'medium': {
-        'prompt': "Summarize in one paragraph:",
-        'max_tokens': 150,
-        'input_chars': 5000
-    },
-    'low': {
-        'prompt': "Provide a detailed multi-paragraph summary:",
-        'max_tokens': 500,
-        'input_chars': 10000
-    }
-}
 
 # Model Settings
-N_CLUSTERS = 3  # Low, Medium, High quality
-QUALITY_LABELS = ["Low", "Medium", "High"]
+SUMMARY_MODEL = "gpt-3.5-turbo"
+JUDGE_MODEL = "gpt-4"
+ANSWER_MODEL = "gpt-3.5-turbo"
 
-# Vector Index Settings
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
-VECTOR_SEARCH_K = 3  # Number of references to retrieve
+# Summary Generation
+MAX_SUMMARY_LENGTH = 400
 
-# Processing Settings
-PDF_TIMEOUT = 30  # Seconds for PDF download
-BATCH_SIZE = 10
-TEMPERATURE = 0.3  # For consistent summaries
+# Quality-specific prompts for training diversity
+SUMMARY_PROMPTS = {
+    "high": """You are an expert research summarizer. Create a comprehensive, accurate summary that captures:
+1. Main research question/objective with context
+2. Detailed methodology and approach
+3. All primary findings and key results
+4. Main conclusions and implications
+5. Limitations and future work
 
-# LLM Judge Settings
-JUDGE_MODEL = "gpt-4"  # Use GPT-4 for better evaluation
-JUDGE_CRITERIA = {
-    "relevance": {
-        "weight": 0.25,
-        "prompt": "Rate the RELEVANCE of this summary compared to the abstract on a scale of 1-10. Consider how well the summary captures the main points and findings."
-    },
-    "coherence": {
-        "weight": 0.20,
-        "prompt": "Rate the COHERENCE and logical flow of this summary on a scale of 1-10. Consider the structure, transitions, and logical progression."
-    },
-    "fluency": {
-        "weight": 0.15,
-        "prompt": "Rate the FLUENCY and language quality of this summary on a scale of 1-10. Consider grammar, clarity, and readability."
-    },
-    "factual_accuracy": {
-        "weight": 0.25,
-        "prompt": "Rate the FACTUAL ACCURACY of this summary compared to the abstract on a scale of 1-10. Check for any errors or misrepresentations."
-    },
-    "completeness": {
-        "weight": 0.15,
-        "prompt": "Rate the COMPLETENESS of this summary compared to the abstract on a scale of 1-10. Consider whether key findings and conclusions are included."
-    }
+Maintain academic rigor, use precise terminology, and ensure all key points are covered. Length: 250-300 words.""",
+
+    "medium": """Summarize this research paper covering:
+- The main research goal
+- Basic methodology used
+- Key findings
+- Main conclusions
+
+Be clear but you may omit some technical details. Length: 150-200 words.""",
+
+    "low": """Briefly summarize this paper in simple terms. Just mention what the research is about and the main finding. 
+Keep it very short and basic. Length: 50-100 words. You can skip technical details and methodology."""
 }
 
-# Which summary level to evaluate with LLM judge
-JUDGE_SUMMARY_LEVEL = "medium"  # Best balance for evaluation
+# Evaluation Criteria
+JUDGE_CRITERIA = [
+    'relevance',
+    'coherence',
+    'completeness'
+]
+
+# Clustering Settings
+N_CLUSTERS = 3
+QUALITY_LABELS = ["Low", "Medium", "High"]
+
+# Vector Search Settings
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 50
+TOP_K_CHUNKS = 5
+
+# Processing Settings
+BATCH_SIZE = 10

@@ -1,111 +1,144 @@
-"""
-Quality Model - Training and prediction
-"""
+"""Quality Assessment Model"""
 
-import pickle
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
-from typing import Dict, Tuple, List
-import config
+from sklearn.metrics import silhouette_score
 
 class QualityModel:
     def __init__(self):
         self.scaler = StandardScaler()
-        self.kmeans = KMeans(n_clusters=config.N_CLUSTERS, random_state=42)
-        self.cluster_scores = {}
-        self.feature_cols = []
+        self.kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+        self.cluster_mapping = {}
+        self.feature_columns = []
 
-    def train(self, metrics_df: pd.DataFrame):
-        """Train unsupervised model on metrics"""
-        # Select feature columns - include both metrics and eval scores
-        potential_cols = [
-            'rouge', 'semantic', 'compression', 'avg',
-            '_score', 'overall_score'  # Include judge scores
-        ]
-        self.feature_cols = [col for col in metrics_df.columns
-                           if any(x in col for x in potential_cols)]
+    def fit(self, data):
+        """Train quality categorization model"""
+        df = pd.DataFrame(data)
+
+        # Select features
+        self.feature_columns = [col for col in df.columns if any(
+            metric in col for metric in ['rouge', 'score', 'similarity', 'ratio']
+        )]
 
         # Prepare features
-        X = metrics_df[self.feature_cols].fillna(0)
+        X = df[self.feature_columns].fillna(0)
         X_scaled = self.scaler.fit_transform(X)
 
         # Cluster
         labels = self.kmeans.fit_predict(X_scaled)
 
-        # Calculate cluster quality scores
-        for i in range(3):
-            mask = labels == i
-            cluster_data = X[mask]
-            self.cluster_scores[i] = cluster_data.mean().mean()
+        # Map clusters to quality levels
+        self._map_clusters_to_quality(df, labels)
 
-        # Sort clusters by quality
-        sorted_clusters = sorted(self.cluster_scores.items(), key=lambda x: x[1])
-        self.quality_mapping = {}
-        for i, (cluster_id, _) in enumerate(sorted_clusters):
-            self.quality_mapping[cluster_id] = config.QUALITY_LABELS[i]
+        # Add quality labels to data
+        for i, item in enumerate(data):
+            item['quality'] = self.cluster_mapping[labels[i]]
 
-    def predict(self, metrics: Dict) -> Tuple[float, float]:
-        """Predict quality score and confidence"""
-        # Convert to dataframe row
-        df = pd.DataFrame([metrics])
-        X = df[self.feature_cols].fillna(0)
+        # Print results
+        self._print_clustering_summary(X_scaled, labels, df)
+
+        return self
+
+    def predict(self, data):
+        """Predict quality for new data"""
+        df = pd.DataFrame(data)
+
+        # Prepare features
+        X = df[self.feature_columns].fillna(0)
         X_scaled = self.scaler.transform(X)
 
-        # Predict cluster
-        cluster = self.kmeans.predict(X_scaled)[0]
+        # Predict clusters
+        labels = self.kmeans.predict(X_scaled)
 
-        # Calculate score (0-10 scale)
-        base_score = self.cluster_scores[cluster]
-        quality_score = min(10, max(0, base_score * 10))
+        # Map to quality
+        for i, item in enumerate(data):
+            item['quality'] = self.cluster_mapping[labels[i]]
 
-        # Calculate confidence based on distance to cluster center
-        distances = self.kmeans.transform(X_scaled)[0]
-        confidence = 1 / (1 + distances[cluster])
+        return data
 
-        return quality_score, confidence
+    def predict_single(self, metrics):
+        """Predict quality for single item"""
+        # Create dataframe with single row
+        df = pd.DataFrame([metrics])
 
-    def evaluate_response(self, response: str, references: List[Dict]) -> float:
-        """Evaluate LLM response against references"""
-        if not references:
-            return 5.0  # Default middle score
+        # Ensure all feature columns exist
+        for col in self.feature_columns:
+            if col not in df.columns:
+                df[col] = 0
 
-        # Simple evaluation based on reference similarity
-        # In practice, you'd compute actual metrics here
-        scores = [ref['score'] for ref in references]
-        base_score = np.mean(scores) * 10
+        # Prepare and predict
+        X = df[self.feature_columns].fillna(0)
+        X_scaled = self.scaler.transform(X)
+        label = self.kmeans.predict(X_scaled)[0]
 
-        # Adjust based on response length and quality heuristics
-        response_words = len(response.split())
-        if 50 <= response_words <= 500:
-            base_score += 0.5
+        return self.cluster_mapping[label]
 
-        return min(10, max(0, base_score))
+    def _map_clusters_to_quality(self, df, labels):
+        """Map cluster IDs to quality levels"""
+        # Calculate mean overall score per cluster
+        cluster_scores = {}
 
-    def save(self, filepath: str):
-        """Save model to pickle file"""
-        model_data = {
-            'scaler': self.scaler,
-            'kmeans': self.kmeans,
-            'cluster_scores': self.cluster_scores,
-            'quality_mapping': self.quality_mapping,
-            'feature_cols': self.feature_cols
-        }
-        with open(filepath, 'wb') as f:
-            pickle.dump(model_data, f)
+        for cluster_id in set(labels):
+            mask = labels == cluster_id
+            cluster_data = df[mask]
 
-    def load(self, filepath: str):
-        """Load model from pickle file"""
-        with open(filepath, 'rb') as f:
-            model_data = pickle.load(f)
-        self.scaler = model_data['scaler']
-        self.kmeans = model_data['kmeans']
-        self.cluster_scores = model_data['cluster_scores']
-        self.quality_mapping = model_data.get('quality_mapping', {})
-        self.feature_cols = model_data['feature_cols']
+            # Use overall_score if available
+            if 'overall_score' in cluster_data.columns:
+                avg_score = cluster_data['overall_score'].mean()
+            else:
+                # Average of all score columns
+                score_cols = [col for col in cluster_data.columns if 'score' in col or 'rouge' in col]
+                avg_score = cluster_data[score_cols].mean().mean()
 
-    def get_performance_summary(self) -> str:
-        """Get model performance summary"""
-        return f"Clusters: {len(self.cluster_scores)}, " \
-               f"Quality mapping: {self.quality_mapping}"
+            cluster_scores[cluster_id] = avg_score
+
+        # Sort clusters by score
+        sorted_clusters = sorted(cluster_scores.items(), key=lambda x: x[1])
+
+        # Assign quality labels
+        quality_labels = ['Low', 'Medium', 'High']
+        for i, (cluster_id, _) in enumerate(sorted_clusters):
+            self.cluster_mapping[cluster_id] = quality_labels[i]
+
+    def _print_clustering_summary(self, X_scaled, labels, df):
+        """Print clustering summary"""
+        # Calculate silhouette score
+        if len(set(labels)) > 1:
+            silhouette = silhouette_score(X_scaled, labels)
+            print(f"\n📊 Clustering Quality (Silhouette): {silhouette:.3f}")
+
+        # Print cluster distribution
+        print("\n📈 Quality Distribution:")
+        for cluster_id, quality in self.cluster_mapping.items():
+            count = sum(1 for label in labels if label == cluster_id)
+            print(f"   {quality}: {count} documents")
+
+        # If training data includes intended quality, show alignment
+        if 'intended_quality' in df.columns:
+            print("\n🎯 Cluster Alignment with Intended Quality:")
+            for cluster_id, quality in self.cluster_mapping.items():
+                cluster_mask = labels == cluster_id
+                cluster_df = df[cluster_mask]
+
+                if len(cluster_df) > 0:
+                    intended_dist = cluster_df['intended_quality'].value_counts()
+                    print(f"\n   {quality} cluster contains:")
+                    for intended, count in intended_dist.items():
+                        pct = (count / len(cluster_df)) * 100
+                        print(f"      - {intended}: {count} ({pct:.1f}%)")
+
+    def get_feature_importance(self):
+        """Get feature importance from cluster centers"""
+        if not hasattr(self.kmeans, 'cluster_centers_'):
+            return {}
+
+        # Calculate variance of each feature across clusters
+        centers = self.kmeans.cluster_centers_
+        variances = np.var(centers, axis=0)
+
+        # Normalize and create importance dict
+        importance = variances / variances.sum()
+
+        return {feat: imp for feat, imp in zip(self.feature_columns, importance)}

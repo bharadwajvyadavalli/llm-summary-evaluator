@@ -1,100 +1,145 @@
-"""
-Vector Index for Document Retrieval
-"""
+"""Vector Search for Query Evaluation"""
 
-import os
 import numpy as np
-from typing import List, Dict
 from sentence_transformers import SentenceTransformer
-import faiss
-import pickle
+from sklearn.metrics.pairwise import cosine_similarity
+import PyPDF2
+from pathlib import Path
+import openai
 import config
 
-class VectorIndex:
+class VectorQueryEngine:
     def __init__(self):
-        self.embedder = SentenceTransformer(config.EMBEDDING_MODEL)
-        self.index = None
-        self.documents = []
+        self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
+        self.client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
+        self.chunks = []
+        self.chunk_embeddings = None
+        self.chunk_metadata = []
 
-    def build_index(self, pdf_dir: str):
-        """Build vector index from new documents (not training data)"""
-        print(f"Building vector index from {pdf_dir}...")
+    def index_pdfs(self, pdf_directory):
+        """Create vector index from PDFs"""
+        print("🔍 Building vector index...")
 
-        # Import here to avoid circular imports
-        from processor import DocumentProcessor
+        pdf_files = list(Path(pdf_directory).glob("*.pdf"))
 
-        # Process PDFs
-        processor = DocumentProcessor()
-        pdf_paths = list(os.scandir(pdf_dir))
-        pdf_paths = [p.path for p in pdf_paths if p.path.endswith('.pdf')]
+        for pdf_file in pdf_files:
+            text = self._extract_pdf_text(pdf_file)
+            if text:
+                chunks = self._chunk_text(text, pdf_file.name)
+                self.chunks.extend(chunks)
 
-        # Extract text and create embeddings
-        embeddings = []
-        for path in pdf_paths:
-            text = processor._extract_text(path)
-            abstract = processor._extract_abstract(text) or text[:1000]
+        # Generate embeddings
+        if self.chunks:
+            texts = [c['text'] for c in self.chunks]
+            self.chunk_embeddings = self.encoder.encode(texts)
+            print(f"✅ Indexed {len(self.chunks)} chunks from {len(pdf_files)} PDFs")
 
-            # Store document info
-            self.documents.append({
-                'path': path,
-                'title': os.path.basename(path),
-                'text': text[:2000],  # Store first 2000 chars
-                'abstract': abstract
+    def answer_question(self, question):
+        """Answer question using vector search and LLM"""
+        if not self.chunks:
+            return "No documents indexed", []
+
+        # Find relevant chunks
+        relevant_chunks = self._search_chunks(question, top_k=5)
+
+        # Generate answer
+        answer = self._generate_answer(question, relevant_chunks)
+
+        return answer, [c['text'] for c in relevant_chunks]
+
+    def _extract_pdf_text(self, pdf_path):
+        """Extract text from PDF"""
+        try:
+            with open(pdf_path, 'rb') as file:
+                reader = PyPDF2.PdfReader(file)
+                text = ""
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
+                return text.strip()
+        except Exception as e:
+            print(f"Error reading {pdf_path}: {e}")
+            return None
+
+    def _chunk_text(self, text, source_name, chunk_size=500, overlap=50):
+        """Split text into overlapping chunks"""
+        words = text.split()
+        chunks = []
+
+        for i in range(0, len(words), chunk_size - overlap):
+            chunk_words = words[i:i + chunk_size]
+            chunk_text = ' '.join(chunk_words)
+
+            chunks.append({
+                'text': chunk_text,
+                'source': source_name,
+                'index': len(self.chunks) + len(chunks)
             })
 
-            # Create embedding
-            embedding = self.embedder.encode(abstract)
-            embeddings.append(embedding)
+        return chunks
 
-        # Build FAISS index
-        embeddings = np.array(embeddings).astype('float32')
-        self.index = faiss.IndexFlatL2(embeddings.shape[1])
-        self.index.add(embeddings)
-
-        print(f"✅ Indexed {len(self.documents)} documents")
-
-    def search(self, query: str, k: int = None) -> List[Dict]:
-        """Search for nearest documents to query"""
-        if self.index is None or self.index.ntotal == 0:
-            print("⚠️  Index is empty. Build index first with --index-dir option.")
-            return []
-
-        # Use default from config if not specified
-        k = k or config.VECTOR_SEARCH_K
-
-        # Limit k to available documents
-        k = min(k, len(self.documents))
-
+    def _search_chunks(self, query, top_k=5):
+        """Find most relevant chunks for query"""
         # Encode query
-        query_embedding = self.embedder.encode([query]).astype('float32')
+        query_embedding = self.encoder.encode([query])
 
-        # Search
-        distances, indices = self.index.search(query_embedding, k)
+        # Calculate similarities
+        similarities = cosine_similarity(query_embedding, self.chunk_embeddings)[0]
 
-        # Return results with scores
-        results = []
-        for i, (dist, idx) in enumerate(zip(distances[0], indices[0])):
-            if idx < len(self.documents):
-                doc = self.documents[idx].copy()
-                doc['score'] = 1 / (1 + dist)  # Convert distance to similarity
-                doc['rank'] = i + 1
-                results.append(doc)
+        # Get top chunks
+        top_indices = np.argsort(similarities)[::-1][:top_k]
 
-        return results
+        relevant_chunks = []
+        for idx in top_indices:
+            chunk = self.chunks[idx].copy()
+            chunk['score'] = float(similarities[idx])
+            relevant_chunks.append(chunk)
 
-    def save_index(self, filepath: str):
-        """Save index to file"""
-        data = {
-            'documents': self.documents,
-            'index': faiss.serialize_index(self.index) if self.index else None
+        return relevant_chunks
+
+    def _generate_answer(self, question, chunks):
+        """Generate answer using LLM"""
+        # Prepare context
+        context = "\n\n".join([f"[{i+1}] {c['text']}" for i, c in enumerate(chunks)])
+
+        prompt = f"""Answer the question based on the provided context.
+
+Context:
+{context}
+
+Question: {question}
+
+Answer:"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=config.ANSWER_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant. Answer based on the context provided."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=300,
+                temperature=0.3
+            )
+
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            print(f"Answer generation error: {e}")
+            return "Unable to generate answer"
+
+    def get_index_stats(self):
+        """Get statistics about the vector index"""
+        if not self.chunks:
+            return {"status": "No documents indexed"}
+
+        sources = {}
+        for chunk in self.chunks:
+            source = chunk['source']
+            sources[source] = sources.get(source, 0) + 1
+
+        return {
+            "total_chunks": len(self.chunks),
+            "total_documents": len(sources),
+            "chunks_per_document": {k: v for k, v in sources.items()},
+            "embedding_dimensions": self.chunk_embeddings.shape[1] if self.chunk_embeddings is not None else 0
         }
-        with open(filepath, 'wb') as f:
-            pickle.dump(data, f)
-
-    def load_index(self, filepath: str):
-        """Load index from file"""
-        with open(filepath, 'rb') as f:
-            data = pickle.load(f)
-        self.documents = data['documents']
-        if data['index'] is not None:
-            self.index = faiss.deserialize_index(data['index'])

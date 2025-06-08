@@ -189,3 +189,7 @@ results/summary_evaluation_results.csv
 results/summary_quality_categories.csv
 my_index/vector_index.pkl
 quality_model.pkl
+output/training_data.csv
+output/training_report.html
+results/query_report.html
+results/query_results.csv
