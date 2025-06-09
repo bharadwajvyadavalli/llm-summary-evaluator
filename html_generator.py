@@ -6,50 +6,369 @@ from pathlib import Path
 
 class HTMLReportGenerator:
     def generate_professional_report(self, df, analysis, output_path):
-        """Generate comprehensive HTML report with visualizations"""
+        """Generate comprehensive HTML report with modern dark theme"""
 
         # Calculate performance distribution
         performance_dist = {
-            'Excellent (8-10)': analysis['excellent_answers'],
-            'Good (6-8)': analysis['good_answers'],
-            'Poor (<6)': analysis['poor_answers']
+            'Excellent': analysis['excellent_answers'],
+            'Good': analysis['good_answers'],
+            'Poor': analysis['poor_answers']
         }
+
+        # Prepare data for charts - take last 30 questions for trend
+        num_questions = min(30, len(df))
+        recent_df = df.tail(num_questions).copy()
+
+        # Ensure we have data
+        if len(recent_df) == 0:
+            print("Warning: No data available for report")
+            recent_df = df.copy()  # Use all data if tail returns empty
+
+        questions_list = recent_df['question'].tolist()
+        scores_list = recent_df['overall_score'].tolist()
+
+        # Debug print
+        print(f"Debug: Creating chart with {len(scores_list)} data points")
+        if len(scores_list) > 0:
+            print(f"Debug: Score range: {min(scores_list):.2f} - {max(scores_list):.2f}")
+            print(f"Debug: First few scores: {scores_list[:5]}")
+
+        # Normalize scores if they're out of expected range
+        max_expected_score = 10.0
+        if len(scores_list) > 0 and max(scores_list) > max_expected_score * 1.5:
+            print(f"Warning: Scores appear to be out of range. Max score: {max(scores_list)}")
+            # Try to normalize - assuming they might be percentages or need scaling
+            max_score = max(scores_list)
+            scores_list = [score * 10.0 / max_score for score in scores_list]
+            print(f"Normalized scores to 0-10 range")
+
+        # Format for JavaScript - create simple arrays
+        questions_labels = [f'"Q{i+1}"' for i in range(len(questions_list))]
+        scores_values = [f'{score:.2f}' for score in scores_list]
+
+        # Create JavaScript array strings
+        labels_js = '[' + ', '.join(questions_labels) + ']'
+        data_js = '[' + ', '.join(scores_values) + ']'
+
+        # Calculate appropriate Y-axis max
+        y_max = 10 if len(scores_list) == 0 else min(10, max(int(max(scores_list)) + 2, 10))
 
         html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
-            <title>LLM Query Performance Report</title>
-            <meta charset="utf-8">
+            <title>LLM Performance Analytics Dashboard</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
             <style>
-                {self._get_css_styles()}
+                {self._get_modern_css_styles()}
             </style>
-            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         </head>
         <body>
-            <div class="header">
-                <div class="container">
-                    <h1>LLM Query Performance Report</h1>
-                    <p>Comprehensive Analysis of Question-Answering System</p>
+            <div class="dashboard">
+                <!-- Header -->
+                <div class="header">
+                    <h1>LLM Performance Analytics</h1>
+                    <p class="subtitle">Generated on {pd.Timestamp.now().strftime('%B %d, %Y at %I:%M %p')}</p>
+                </div>
+                
+                <!-- Executive Summary -->
+                <div class="executive-summary">
+                    <h2 style="font-size: 1.5rem; margin-bottom: 1rem;">Executive Summary</h2>
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <div class="summary-value">{analysis['total_questions']}</div>
+                            <div class="summary-label">Total Questions</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-value">{analysis['avg_overall_score']:.1f}</div>
+                            <div class="summary-label">Average Score</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-value">{analysis['high_quality_pct']:.0f}%</div>
+                            <div class="summary-label">High Quality</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-value">{analysis['system_rating']}</div>
+                            <div class="summary-label">System Rating</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Key Insights -->
+                <div class="insights-container">
+                    <h2 style="font-size: 1.5rem; margin-bottom: 1rem;">📊 Key Insights</h2>
+                    <div class="insights-grid">
+                        <div class="insight-card">
+                            <div class="insight-icon">🎯</div>
+                            <div class="insight-text">
+                                <strong>{analysis['excellent_answers']}</strong> responses ({analysis['excellent_answers']/len(df)*100:.0f}%) achieved excellent scores (≥8.0)
+                            </div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-icon">📈</div>
+                            <div class="insight-text">
+                                Average relevance score of <strong>{analysis['avg_relevance']:.1f}/10</strong> indicates {'strong' if analysis['avg_relevance'] >= 7 else 'moderate'} alignment
+                            </div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-icon">🔗</div>
+                            <div class="insight-text">
+                                Semantic similarity averaging <strong>{analysis['avg_semantic_sim']:.2f}</strong> shows {'high' if analysis['avg_semantic_sim'] >= 0.7 else 'moderate'} content matching
+                            </div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-icon">📊</div>
+                            <div class="insight-text">
+                                Performance consistency is <strong>{analysis['performance_consistency']}</strong> (σ = {analysis['std_overall_score']:.2f})
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Metrics Cards -->
+                <div class="metrics-grid">
+                    <!-- ROUGE Metrics -->
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <div class="metric-icon">📝</div>
+                            <div class="metric-title">ROUGE Metrics</div>
+                        </div>
+                        <div class="metric-content">
+                            <div class="metric-row">
+                                <span class="metric-label">ROUGE-1</span>
+                                <span class="metric-value">{analysis['avg_rouge1']:.3f}</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">ROUGE-2</span>
+                                <span class="metric-value">{analysis['avg_rouge2']:.3f}</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">ROUGE-L</span>
+                                <span class="metric-value">{analysis['avg_rougel']:.3f}</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- LLM Judge Scores -->
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <div class="metric-icon">⚖️</div>
+                            <div class="metric-title">LLM Judge Scores</div>
+                        </div>
+                        <div class="metric-content">
+                            <div class="metric-row">
+                                <span class="metric-label">Relevance</span>
+                                <span class="metric-value">{analysis['avg_relevance']:.1f}/10</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Coherence</span>
+                                <span class="metric-value">{analysis['avg_coherence']:.1f}/10</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Overall Score</span>
+                                <span class="metric-value">{analysis['avg_overall_score']:.1f}/10</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Quality Distribution -->
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <div class="metric-icon">🎯</div>
+                            <div class="metric-title">Quality Distribution</div>
+                        </div>
+                        <div class="metric-content">
+                            {self._generate_quality_bars(analysis['quality_distribution'], len(df))}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Score Trend Chart -->
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h3 class="chart-title">Overall Score Trend (Last {num_questions} Questions)</h3>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="scoreTrendChart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Performance Distribution Chart -->
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h3 class="chart-title">Performance Distribution</h3>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="performanceChart"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Metric Correlations -->
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h3 class="chart-title">Metric Correlations with Overall Score</h3>
+                    </div>
+                    <div class="features-grid">
+                        {self._generate_correlation_cards(analysis['metric_correlations'])}
+                    </div>
+                </div>
+                
+                <!-- Top & Bottom Performers -->
+                <div class="performers-section">
+                    <div class="performers-grid">
+                        <!-- Top Performers -->
+                        <div class="performers-card">
+                            <h3 class="performers-title">🏆 Top Performing Questions</h3>
+                            <div class="performers-list">
+                                {self._generate_top_performers(df)}
+                            </div>
+                        </div>
+                        
+                        <!-- Bottom Performers -->
+                        <div class="performers-card">
+                            <h3 class="performers-title">⚠️ Questions Needing Improvement</h3>
+                            <div class="performers-list">
+                                {self._generate_bottom_performers(df)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Footer -->
+                <div class="footer">
+                    <p>Powered by LLM Evaluation System • {pd.Timestamp.now().year}</p>
                 </div>
             </div>
-
-            <div class="container">
-                {self._generate_summary_cards(analysis)}
-                {self._generate_insights_section(analysis, df)}
-                {self._generate_performance_section(performance_dist)}
-                {self._generate_quality_section(analysis, df)}
-                {self._generate_metrics_section(analysis, df)}
-                {self._generate_top_questions_section(df)}
-                {self._generate_bottom_questions_section(df)}
-                {self._generate_correlation_section(analysis)}
-            </div>
-
-            <div class="footer">
-                <p>Generated on {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')} | LLM Evaluation System</p>
-            </div>
-
-            {self._generate_javascript(performance_dist, analysis)}
+            
+            <script>
+                // Chart.js configuration
+                Chart.defaults.color = '#888';
+                Chart.defaults.borderColor = '#2a2a3e';
+                
+                console.log('Initializing charts...');
+                
+                // Wait for DOM to be fully loaded
+                window.addEventListener('DOMContentLoaded', function() {{
+                    // Score Trend Chart
+                    const scoreTrendCtx = document.getElementById('scoreTrendChart');
+                    if (scoreTrendCtx) {{
+                        const chartData = {data_js};
+                        const chartLabels = {labels_js};
+                        
+                        console.log('Chart data:', chartData);
+                        console.log('Chart labels:', chartLabels);
+                        
+                        // Calculate appropriate Y-axis max based on data
+                        const maxDataValue = Math.max(...chartData);
+                        const yAxisMax = Math.ceil(maxDataValue * 1.1); // 10% padding
+                        
+                        const scoreTrendChart = new Chart(scoreTrendCtx.getContext('2d'), {{
+                            type: 'line',
+                            data: {{
+                                labels: chartLabels,
+                                datasets: [{{
+                                    label: 'Overall Score',
+                                    data: chartData,
+                                    borderColor: '#667eea',
+                                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                                    borderWidth: 3,
+                                    pointRadius: 5,
+                                    pointBackgroundColor: '#667eea',
+                                    pointBorderColor: '#fff',
+                                    pointBorderWidth: 2,
+                                    tension: 0.4,
+                                    fill: true
+                                }}]
+                            }},
+                            options: {{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {{
+                                    legend: {{ display: false }},
+                                    tooltip: {{
+                                        backgroundColor: '#1a1a2e',
+                                        titleColor: '#e0e0e0',
+                                        bodyColor: '#e0e0e0',
+                                        borderColor: '#667eea',
+                                        borderWidth: 1,
+                                        cornerRadius: 8,
+                                        displayColors: false,
+                                        callbacks: {{
+                                            label: function(context) {{
+                                                return 'Score: ' + context.parsed.y.toFixed(2);
+                                            }}
+                                        }}
+                                    }}
+                                }},
+                                scales: {{
+                                    x: {{
+                                        grid: {{ color: '#2a2a3e' }},
+                                        ticks: {{ 
+                                            color: '#888',
+                                            font: {{ size: 11 }}
+                                        }}
+                                    }},
+                                    y: {{
+                                        grid: {{ color: '#2a2a3e' }},
+                                        beginAtZero: true,
+                                        max: yAxisMax,
+                                        ticks: {{
+                                            color: '#888'
+                                        }}
+                                    }}
+                                }}
+                            }}
+                        }});
+                    }} else {{
+                        console.error('Score trend canvas not found!');
+                    }}
+                    
+                    // Performance Distribution Chart
+                    const performanceCtx = document.getElementById('performanceChart');
+                    if (performanceCtx) {{
+                        const performanceChart = new Chart(performanceCtx.getContext('2d'), {{
+                            type: 'doughnut',
+                            data: {{
+                                labels: {list(performance_dist.keys())},
+                                datasets: [{{
+                                    data: {list(performance_dist.values())},
+                                    backgroundColor: [
+                                        'rgba(16, 185, 129, 0.8)',  // Excellent - Green
+                                        'rgba(245, 158, 11, 0.8)',  // Good - Yellow
+                                        'rgba(239, 68, 68, 0.8)'    // Poor - Red
+                                    ],
+                                    borderWidth: 0,
+                                    hoverOffset: 10
+                                }}]
+                            }},
+                            options: {{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {{
+                                    legend: {{
+                                        position: 'bottom',
+                                        labels: {{
+                                            padding: 20,
+                                            font: {{ size: 14 }},
+                                            color: '#e0e0e0'
+                                        }}
+                                    }},
+                                    tooltip: {{
+                                        backgroundColor: '#1a1a2e',
+                                        titleColor: '#e0e0e0',
+                                        bodyColor: '#e0e0e0',
+                                        borderColor: '#667eea',
+                                        borderWidth: 1,
+                                        cornerRadius: 8
+                                    }}
+                                }}
+                            }}
+                        }});
+                    }}
+                }});
+            </script>
         </body>
         </html>
         """
@@ -219,186 +538,458 @@ class HTMLReportGenerator:
         with open(f"{output_path}.html", 'w', encoding='utf-8') as f:
             f.write(html)
 
-    def _get_css_styles(self):
-        """Return CSS styles for the report"""
+    def _get_modern_css_styles(self):
+        """Return modern dark theme CSS styles"""
         return """
-            body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                margin: 0;
-                padding: 0;
-                background-color: #f5f7fa;
-                color: #2c3e50;
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            
+            body { 
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: #0f0f23;
+                color: #e0e0e0;
                 line-height: 1.6;
             }
-            .container {
-                max-width: 1200px;
+            
+            .dashboard {
+                max-width: 1400px;
                 margin: 0 auto;
-                padding: 20px;
+                padding: 2rem;
             }
+            
+            /* Header */
             .header {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                padding: 40px 0;
-                text-align: center;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+                border-radius: 20px;
+                padding: 3rem;
+                margin-bottom: 2rem;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                position: relative;
+                overflow: hidden;
             }
+            
+            .header::before {
+                content: '';
+                position: absolute;
+                top: -50%;
+                right: -10%;
+                width: 300px;
+                height: 300px;
+                background: rgba(255,255,255,0.05);
+                border-radius: 50%;
+            }
+            
             .header h1 {
-                margin: 0;
-                font-size: 2.5em;
-                font-weight: 300;
+                font-size: 2.8rem;
+                font-weight: 700;
+                margin-bottom: 0.5rem;
+                background: linear-gradient(to right, #fff, #e0e0e0);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
             }
-            .header p {
-                margin: 10px 0 0 0;
-                font-size: 1.2em;
+            
+            .header .subtitle {
+                font-size: 1.1rem;
                 opacity: 0.9;
+                color: #e0e0e0;
             }
-            .summary-cards {
+            
+            /* Executive Summary */
+            .executive-summary {
+                background: #1a1a2e;
+                border-radius: 16px;
+                padding: 2rem;
+                margin-bottom: 2rem;
+                border: 1px solid #2a2a3e;
+            }
+            
+            .summary-grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                gap: 20px;
-                margin: 30px 0;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 1.5rem;
+                margin-top: 1.5rem;
             }
-            .card {
-                background: white;
-                padding: 25px;
-                border-radius: 10px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                transition: transform 0.2s;
+            
+            .summary-item {
+                text-align: center;
             }
-            .card:hover {
-                transform: translateY(-5px);
-                box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+            
+            .summary-value {
+                font-size: 2.5rem;
+                font-weight: 700;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
             }
-            .card h3 {
-                margin: 0 0 10px 0;
-                color: #667eea;
-                font-size: 0.9em;
+            
+            .summary-label {
+                color: #888;
+                font-size: 0.9rem;
                 text-transform: uppercase;
                 letter-spacing: 1px;
             }
-            .card .value {
-                font-size: 2.5em;
-                font-weight: 600;
-                margin: 0;
-                color: #2c3e50;
+            
+            /* Insights */
+            .insights-container {
+                background: #1a1a2e;
+                border-radius: 16px;
+                padding: 2rem;
+                margin-bottom: 2rem;
+                border: 1px solid #2a2a3e;
             }
-            .card .label {
-                color: #7f8c8d;
-                font-size: 0.9em;
-            }
-            .section {
-                background: white;
-                padding: 30px;
-                margin: 20px 0;
-                border-radius: 10px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            }
-            .section h2 {
-                color: #2c3e50;
-                margin-bottom: 20px;
-                padding-bottom: 10px;
-                border-bottom: 2px solid #e0e6ed;
-            }
-            table {
-                width: 100%;
-                border-collapse: collapse;
-                margin: 20px 0;
-            }
-            th, td {
-                padding: 12px;
-                text-align: left;
-                border-bottom: 1px solid #e0e6ed;
-            }
-            th {
-                background-color: #f8f9fa;
-                font-weight: 600;
-                color: #2c3e50;
-            }
-            tr:hover {
-                background-color: #f8f9fa;
-            }
-            .quality-High {
-                color: #27ae60;
-                font-weight: 600;
-            }
-            .quality-Medium {
-                color: #f39c12;
-                font-weight: 600;
-            }
-            .quality-Low {
-                color: #e74c3c;
-                font-weight: 600;
-            }
-            .chart-container {
-                margin: 20px 0;
-                padding: 20px;
-                background: #f8f9fa;
-                border-radius: 8px;
-            }
-            .bar {
-                height: 30px;
-                background: linear-gradient(to right, #667eea, #764ba2);
-                margin: 5px 0;
-                border-radius: 5px;
-                position: relative;
-                transition: all 0.3s;
-            }
-            .bar:hover {
-                opacity: 0.8;
-            }
-            .bar-label {
-                position: absolute;
-                right: 10px;
-                top: 50%;
-                transform: translateY(-50%);
-                color: white;
-                font-weight: 600;
-            }
-            .metric-grid {
+            
+            .insights-grid {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 15px;
-                margin: 20px 0;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 1.5rem;
+                margin-top: 1rem;
             }
-            .metric-item {
-                padding: 15px;
-                background: #f8f9fa;
-                border-radius: 8px;
-                text-align: center;
+            
+            .insight-card {
+                background: #242438;
+                border-radius: 12px;
+                padding: 1.5rem;
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+                transition: all 0.3s ease;
             }
-            .metric-item .name {
-                font-size: 0.9em;
-                color: #7f8c8d;
-                margin-bottom: 5px;
+            
+            .insight-card:hover {
+                background: #2a2a3e;
+                transform: translateY(-2px);
             }
-            .metric-item .value {
-                font-size: 1.8em;
+            
+            .insight-icon {
+                font-size: 2rem;
+                flex-shrink: 0;
+            }
+            
+            .insight-text {
+                color: #e0e0e0;
+                font-size: 0.95rem;
+                line-height: 1.5;
+            }
+            
+            .insight-text strong {
+                color: #667eea;
+                font-weight: 700;
+            }
+            
+            /* Metrics Grid */
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+                gap: 1.5rem;
+                margin-bottom: 2rem;
+            }
+            
+            .metric-card {
+                background: #1a1a2e;
+                border-radius: 16px;
+                padding: 1.5rem;
+                border: 1px solid #2a2a3e;
+                transition: all 0.3s ease;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .metric-card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+                border-color: #667eea;
+            }
+            
+            .metric-card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 4px;
+                background: linear-gradient(to right, #667eea, #764ba2);
+            }
+            
+            .metric-header {
+                display: flex;
+                align-items: center;
+                margin-bottom: 1.5rem;
+            }
+            
+            .metric-icon {
+                width: 48px;
+                height: 48px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-right: 1rem;
+                font-size: 1.5rem;
+            }
+            
+            .metric-title {
+                font-size: 1.1rem;
                 font-weight: 600;
-                color: #2c3e50;
+                color: #e0e0e0;
             }
-            .insights {
-                background: #e8f4f8;
-                border-left: 4px solid #3498db;
-                padding: 20px;
-                margin: 20px 0;
-                border-radius: 0 8px 8px 0;
+            
+            .metric-content {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
             }
-            .insights h3 {
-                margin: 0 0 10px 0;
-                color: #2980b9;
+            
+            .metric-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 0.5rem 0;
+                border-bottom: 1px solid #2a2a3e;
             }
-            .insights ul {
-                margin: 10px 0;
-                padding-left: 20px;
+            
+            .metric-row:last-child {
+                border-bottom: none;
             }
-            .insights li {
-                margin: 5px 0;
+            
+            .metric-label {
+                color: #888;
+                font-size: 0.9rem;
             }
+            
+            .metric-value {
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: #667eea;
+            }
+            
+            /* Quality Bars */
+            .quality-bar-container {
+                margin: 0.5rem 0;
+            }
+            
+            .quality-bar-header {
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 0.5rem;
+                font-size: 0.9rem;
+            }
+            
+            .quality-bar-track {
+                background: #2a2a3e;
+                height: 8px;
+                border-radius: 4px;
+                overflow: hidden;
+            }
+            
+            .quality-bar-fill {
+                height: 100%;
+                border-radius: 4px;
+                transition: width 1s ease-out;
+            }
+            
+            .quality-High .quality-bar-fill {
+                background: linear-gradient(to right, #10b981, #34d399);
+            }
+            
+            .quality-Medium .quality-bar-fill {
+                background: linear-gradient(to right, #f59e0b, #fbbf24);
+            }
+            
+            .quality-Low .quality-bar-fill {
+                background: linear-gradient(to right, #ef4444, #f87171);
+            }
+            
+            /* Charts */
+            .chart-container {
+                background: #1a1a2e;
+                border-radius: 16px;
+                padding: 2rem;
+                margin-bottom: 2rem;
+                border: 1px solid #2a2a3e;
+            }
+            
+            .chart-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 2rem;
+            }
+            
+            .chart-title {
+                font-size: 1.3rem;
+                font-weight: 600;
+                color: #e0e0e0;
+            }
+            
+            .chart-wrapper {
+                position: relative;
+                height: 300px;
+            }
+            
+            /* Feature/Correlation Cards */
+            .features-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                gap: 1rem;
+                margin-top: 1.5rem;
+            }
+            
+            .feature-card {
+                background: #242438;
+                border: 1px solid #3a3a4e;
+                border-radius: 12px;
+                padding: 1.2rem;
+                text-align: center;
+                transition: all 0.3s ease;
+            }
+            
+            .feature-card:hover {
+                background: #2a2a3e;
+                border-color: #667eea;
+                transform: scale(1.05);
+            }
+            
+            .feature-name {
+                font-weight: 600;
+                color: #e0e0e0;
+                margin-bottom: 0.5rem;
+                text-transform: capitalize;
+            }
+            
+            .feature-count {
+                font-size: 1.8rem;
+                font-weight: 700;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+            }
+            
+            .feature-label {
+                color: #888;
+                font-size: 0.8rem;
+            }
+            
+            /* Performers Section */
+            .performers-section {
+                margin-bottom: 2rem;
+            }
+            
+            .performers-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+                gap: 1.5rem;
+            }
+            
+            .performers-card {
+                background: #1a1a2e;
+                border-radius: 16px;
+                padding: 2rem;
+                border: 1px solid #2a2a3e;
+            }
+            
+            .performers-title {
+                font-size: 1.3rem;
+                font-weight: 600;
+                color: #e0e0e0;
+                margin-bottom: 1.5rem;
+            }
+            
+            .performers-list {
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+            }
+            
+            .performer-item {
+                background: #242438;
+                border-radius: 12px;
+                padding: 1rem;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                transition: all 0.3s ease;
+            }
+            
+            .performer-item:hover {
+                background: #2a2a3e;
+                transform: translateX(5px);
+            }
+            
+            .performer-question {
+                flex: 1;
+                color: #e0e0e0;
+                font-size: 0.95rem;
+                margin-right: 1rem;
+            }
+            
+            .performer-score {
+                font-size: 1.2rem;
+                font-weight: 700;
+                color: #667eea;
+                white-space: nowrap;
+            }
+            
+            /* Status Indicators */
+            .status {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+                padding: 0.3rem 0.8rem;
+                border-radius: 20px;
+                font-size: 0.85rem;
+                font-weight: 500;
+            }
+            
+            .status-excellent {
+                background: rgba(16, 185, 129, 0.2);
+                color: #10b981;
+            }
+            
+            .status-good {
+                background: rgba(59, 130, 246, 0.2);
+                color: #3b82f6;
+            }
+            
+            .status-poor {
+                background: rgba(239, 68, 68, 0.2);
+                color: #ef4444;
+            }
+            
+            /* Footer */
             .footer {
                 text-align: center;
-                padding: 30px;
-                color: #7f8c8d;
-                font-size: 0.9em;
+                padding: 3rem 2rem;
+                color: #666;
+                font-size: 0.9rem;
+            }
+            
+            /* Responsive */
+            @media (max-width: 768px) {
+                .dashboard { padding: 1rem; }
+                .header { padding: 2rem; }
+                .header h1 { font-size: 2rem; }
+                .metrics-grid { grid-template-columns: 1fr; }
+                .performers-grid { grid-template-columns: 1fr; }
+            }
+            
+            /* Animations */
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(20px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            
+            .metric-card, .chart-container, .insight-card {
+                animation: fadeIn 0.6s ease-out;
+            }
+            
+            /* Print Styles */
+            @media print {
+                body { background: white; color: black; }
+                .metric-card, .chart-container { 
+                    background: white; 
+                    border: 1px solid #ddd;
+                    break-inside: avoid;
+                }
             }
         """
 
@@ -436,7 +1027,7 @@ class HTMLReportGenerator:
             <h3>📊 Key Insights</h3>
             <ul>
                 <li>The system achieved an average overall score of <strong>{analysis['avg_overall_score']:.2f}/10</strong></li>
-                <li><strong>{analysis['excellent_answers']}</strong> responses ({analysis['excellent_answers'] / len(df) * 100:.1f}%) were rated as excellent (score ≥ 8)</li>
+                <li><strong>{analysis['excellent_answers']}</strong> responses ({analysis['excellent_answers']/len(df)*100:.1f}%) were rated as excellent (score ≥ 8)</li>
                 <li>Relevance score averaged <strong>{analysis['avg_relevance']:.2f}/10</strong>, indicating {'strong' if analysis['avg_relevance'] >= 7 else 'moderate'} alignment with questions</li>
                 <li>Semantic similarity averaged <strong>{analysis['avg_semantic_sim']:.3f}</strong>, showing {'high' if analysis['avg_semantic_sim'] >= 0.7 else 'moderate'} content matching</li>
                 <li>Performance consistency is <strong>{analysis['performance_consistency']}</strong> (std dev: {analysis['std_overall_score']:.2f})</li>
@@ -465,10 +1056,10 @@ class HTMLReportGenerator:
                 <div style="margin: 10px 0;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                         <span class="quality-{quality}">{quality}</span>
-                        <span>{count} ({count / len(df) * 100:.1f}%)</span>
+                        <span>{count} ({count/len(df)*100:.1f}%)</span>
                     </div>
                     <div style="background: #e0e6ed; border-radius: 5px; overflow: hidden;">
-                        <div class="bar" style="width: {count / len(df) * 100}%;">
+                        <div class="bar" style="width: {count/len(df)*100}%;">
                             <span class="bar-label">{count}</span>
                         </div>
                     </div>
@@ -567,20 +1158,187 @@ class HTMLReportGenerator:
         </div>
         """
 
-    def _generate_javascript(self, performance_dist, analysis):
-        """Generate JavaScript for charts"""
+    def _generate_quality_bars(self, quality_dist, total):
+        """Generate quality distribution bars"""
+        html = ""
+        for quality, count in quality_dist.items():
+            percentage = (count / total) * 100
+            html += f"""
+            <div class="quality-bar-container quality-{quality}">
+                <div class="quality-bar-header">
+                    <span>{quality}</span>
+                    <span>{count} ({percentage:.0f}%)</span>
+                </div>
+                <div class="quality-bar-track">
+                    <div class="quality-bar-fill" style="width: {percentage}%"></div>
+                </div>
+            </div>
+            """
+        return html
+
+    def _generate_correlation_cards(self, correlations):
+        """Generate correlation metric cards"""
+        html = ""
+        metric_names = {
+            'rouge_1': 'ROUGE-1',
+            'rouge_2': 'ROUGE-2',
+            'rouge_l': 'ROUGE-L',
+            'semantic_similarity': 'Semantic Sim',
+            'relevance_score': 'Relevance',
+            'coherence_score': 'Coherence'
+        }
+
+        for metric, correlation in correlations.items():
+            display_name = metric_names.get(metric, metric)
+            html += f"""
+            <div class="feature-card">
+                <div class="feature-name">{display_name}</div>
+                <div class="feature-count">{correlation:.3f}</div>
+                <div class="feature-label">correlation</div>
+            </div>
+            """
+        return html
+
+    def _generate_top_performers(self, df):
+        """Generate top performing questions list"""
+        html = ""
+        for idx in df.nlargest(5, 'overall_score').index:
+            question = df.iloc[idx]['question'][:80] + '...' if len(df.iloc[idx]['question']) > 80 else df.iloc[idx]['question']
+            score = df.iloc[idx]['overall_score']
+            quality = df.iloc[idx]['quality']
+
+            status_class = 'excellent' if score >= 8 else 'good'
+            html += f"""
+            <div class="performer-item">
+                <div class="performer-question">{question}</div>
+                <div class="performer-score">
+                    <span class="status status-{status_class}">{score:.1f}/10</span>
+                </div>
+            </div>
+            """
+        return html
+
+    def _generate_bottom_performers(self, df):
+        """Generate bottom performing questions list"""
+        html = ""
+        for idx in df.nsmallest(5, 'overall_score').index:
+            question = df.iloc[idx]['question'][:80] + '...' if len(df.iloc[idx]['question']) > 80 else df.iloc[idx]['question']
+            score = df.iloc[idx]['overall_score']
+
+            # Identify main issue
+            if df.iloc[idx]['relevance_score'] < 5:
+                issue = 'Low Relevance'
+            elif df.iloc[idx]['coherence_score'] < 5:
+                issue = 'Low Coherence'
+            else:
+                issue = 'Poor Semantic Match'
+
+            html += f"""
+            <div class="performer-item">
+                <div class="performer-question">{question}</div>
+                <div class="performer-score">
+                    <span class="status status-poor">{score:.1f}/10 - {issue}</span>
+                </div>
+            </div>
+            """
+        return html
+
+    def _generate_modern_javascript(self, questions_json, scores_json, performance_dist, analysis, questions_list):
+        """Generate JavaScript for modern charts"""
+        # Create a tooltip mapping for the full questions
+        tooltip_mapping = {}
+        for i, q in enumerate(questions_list):
+            tooltip_mapping[f'Q{i+1}'] = q[:100] + '...' if len(q) > 100 else q
+
         return f"""
         <script>
+            // Chart.js configuration
+            Chart.defaults.color = '#888';
+            Chart.defaults.borderColor = '#2a2a3e';
+            
+            // Tooltip mapping for full questions
+            const questionTooltips = {str(tooltip_mapping).replace("'", '"')};
+            
+            // Score Trend Chart
+            const scoreTrendCtx = document.getElementById('scoreTrendChart').getContext('2d');
+            const scoreTrendChart = new Chart(scoreTrendCtx, {{
+                type: 'line',
+                data: {{
+                    labels: {questions_json},
+                    datasets: [{{
+                        label: 'Overall Score',
+                        data: {scores_json},
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 3,
+                        pointRadius: 5,
+                        pointBackgroundColor: '#667eea',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        tension: 0.4,
+                        fill: true
+                    }}]
+                }},
+                options: {{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {{
+                        legend: {{ display: false }},
+                        tooltip: {{
+                            backgroundColor: '#1a1a2e',
+                            titleColor: '#e0e0e0',
+                            bodyColor: '#e0e0e0',
+                            borderColor: '#667eea',
+                            borderWidth: 1,
+                            cornerRadius: 8,
+                            displayColors: false,
+                            callbacks: {{
+                                title: function(context) {{
+                                    const label = context[0].label;
+                                    return questionTooltips[label] || label;
+                                }},
+                                label: function(context) {{
+                                    return 'Score: ' + context.parsed.y.toFixed(2) + '/10';
+                                }}
+                            }}
+                        }}
+                    }},
+                    scales: {{
+                        x: {{
+                            grid: {{ color: '#2a2a3e' }},
+                            ticks: {{ 
+                                color: '#888',
+                                font: {{ size: 11 }}
+                            }}
+                        }},
+                        y: {{
+                            grid: {{ color: '#2a2a3e' }},
+                            beginAtZero: true,
+                            max: 10,
+                            ticks: {{
+                                color: '#888',
+                                stepSize: 2
+                            }}
+                        }}
+                    }}
+                }}
+            }});
+            
             // Performance Distribution Chart
-            const perfCtx = document.getElementById('performanceChart').getContext('2d');
-            new Chart(perfCtx, {{
+            const performanceCtx = document.getElementById('performanceChart').getContext('2d');
+            const performanceChart = new Chart(performanceCtx, {{
                 type: 'doughnut',
                 data: {{
                     labels: {list(performance_dist.keys())},
                     datasets: [{{
                         data: {list(performance_dist.values())},
-                        backgroundColor: ['#27ae60', '#f39c12', '#e74c3c'],
-                        borderWidth: 0
+                        backgroundColor: [
+                            'rgba(16, 185, 129, 0.8)',  // Excellent - Green
+                            'rgba(245, 158, 11, 0.8)',  // Good - Yellow
+                            'rgba(239, 68, 68, 0.8)'    // Poor - Red
+                        ],
+                        borderWidth: 0,
+                        hoverOffset: 10
                     }}]
                 }},
                 options: {{
@@ -591,46 +1349,52 @@ class HTMLReportGenerator:
                             position: 'bottom',
                             labels: {{
                                 padding: 20,
-                                font: {{
-                                    size: 14
+                                font: {{ size: 14 }},
+                                color: '#e0e0e0',
+                                generateLabels: function(chart) {{
+                                    const data = chart.data;
+                                    return data.labels.map((label, i) => {{
+                                        const value = data.datasets[0].data[i];
+                                        const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((value / total) * 100).toFixed(1);
+                                        return {{
+                                            text: label + ' (' + value + ' - ' + percentage + '%)',
+                                            fillStyle: data.datasets[0].backgroundColor[i],
+                                            index: i
+                                        }};
+                                    }});
+                                }}
+                            }}
+                        }},
+                        tooltip: {{
+                            backgroundColor: '#1a1a2e',
+                            titleColor: '#e0e0e0',
+                            bodyColor: '#e0e0e0',
+                            borderColor: '#667eea',
+                            borderWidth: 1,
+                            cornerRadius: 8,
+                            callbacks: {{
+                                label: function(context) {{
+                                    const label = context.label || '';
+                                    const value = context.parsed;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = ((value / total) * 100).toFixed(1);
+                                    return label + ': ' + value + ' (' + percentage + '%)';
                                 }}
                             }}
                         }}
                     }}
                 }}
             }});
-
-            // Correlation Chart
-            const corrCtx = document.getElementById('correlationChart').getContext('2d');
-            const correlations = {list(analysis['metric_correlations'].values())};
-            const labels = {list(analysis['metric_correlations'].keys())};
-
-            new Chart(corrCtx, {{
-                type: 'bar',
-                data: {{
-                    labels: labels,
-                    datasets: [{{
-                        label: 'Correlation with Overall Score',
-                        data: correlations,
-                        backgroundColor: correlations.map(v => v > 0.7 ? '#27ae60' : v > 0.4 ? '#f39c12' : '#e74c3c'),
-                        borderWidth: 0
-                    }}]
-                }},
-                options: {{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {{
-                        y: {{
-                            beginAtZero: true,
-                            max: 1
-                        }}
-                    }},
-                    plugins: {{
-                        legend: {{
-                            display: false
-                        }}
-                    }}
-                }}
+            
+            // Add animation to quality bars after page load
+            window.addEventListener('load', function() {{
+                const qualityBars = document.querySelectorAll('.quality-bar-fill');
+                qualityBars.forEach((bar, index) => {{
+                    setTimeout(() => {{
+                        bar.style.transition = 'width 1s ease-out';
+                    }}, index * 100);
+                }});
             }});
         </script>
         """
