@@ -2,7 +2,6 @@
 """LLM Evaluation System - Main Entry Point"""
 
 import argparse
-import os
 import pandas as pd
 import pickle
 from pathlib import Path
@@ -10,6 +9,8 @@ from processor import PDFProcessor
 from metrics_evals import MetricsEvaluator
 from models import QualityModel
 from vector_index import VectorQueryEngine
+from report_generator import ReportGenerator
+from html_generator import HTMLReportGenerator
 import config
 
 import warnings
@@ -43,7 +44,8 @@ def train_mode(args):
     print(f"✅ Saved quality model to {model_path}")
 
     # Generate training report
-    generate_report(metrics, args.output / 'training_report')
+    html_gen = HTMLReportGenerator()
+    html_gen.generate_training_report(metrics, args.output / 'training_report')
 
 
 def inference_mode(args):
@@ -85,7 +87,8 @@ def inference_mode(args):
     chunks_df.to_csv(args.output / 'chunks_index.csv', index=False)
 
     # Generate index report
-    generate_index_report(stats, chunks_df, args.output / 'index_report')
+    html_gen = HTMLReportGenerator()
+    html_gen.generate_index_report(stats, chunks_df, args.output / 'index_report')
 
 
 def query_mode(args):
@@ -155,213 +158,37 @@ def query_mode(args):
     df.to_csv(args.output / 'query_results.csv', index=False, escapechar='\\', quoting=1)
 
     # Generate report
-    generate_query_report(results, args.output / 'query_report')
+    html_gen = HTMLReportGenerator()
+    html_gen.generate_query_report(results, args.output / 'query_report')
 
 
-def generate_report(data, output_path):
-    """Generate HTML report"""
-    df = pd.DataFrame(data)
+def report_mode(args):
+    """Generate professional reports from query results"""
+    print("📊 Starting report generation mode...")
 
-    # Quality distribution
-    quality_dist = df['quality'].value_counts() if 'quality' in df else {}
+    # Check if input file exists
+    if not args.input.exists():
+        print(f"❌ Error: Input file {args.input} not found")
+        return
 
-    # Check if this is training data with intended quality
-    intended_quality_section = ""
-    if 'intended_quality' in df.columns:
-        intended_dist = df['intended_quality'].value_counts()
-        intended_quality_section = f"""
-        <h2>Training Data Distribution</h2>
-        <p><strong>Summaries per Quality Level:</strong></p>
-        <ul>
-            {"".join([f'<li><strong>{k}:</strong> {v} summaries</li>' for k, v in intended_dist.items()])}
-        </ul>
+    # Generate reports
+    report_gen = ReportGenerator()
+    report_gen.generate_reports(args.input, args.output)
 
-        <h2>Model Performance</h2>
-        <p>How well the model clusters align with intended quality:</p>
-        <table>
-            <tr><th>Predicted</th><th>High</th><th>Medium</th><th>Low</th></tr>
-            {generate_confusion_matrix(df)}
-        </table>
-        """
-
-    html = f"""
-    <html>
-    <head>
-        <title>LLM Evaluation Report</title>
-        <style>
-            body {{ font-family: Arial; margin: 40px; }}
-            table {{ border-collapse: collapse; width: 100%; }}
-            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-            th {{ background-color: #f2f2f2; }}
-            .metric {{ color: #2196F3; font-weight: bold; }}
-        </style>
-    </head>
-    <body>
-        <h1>📊 LLM Evaluation Report</h1>
-
-        <h2>Summary Statistics</h2>
-        <p><strong>Total Documents:</strong> {len(df) if 'intended_quality' not in df else len(df) // 3}</p>
-        <p><strong>Total Summaries:</strong> {len(df)}</p>
-        <p><strong>Average Score:</strong> {df['overall_score'].mean():.2f}/10</p>
-
-        {intended_quality_section}
-
-        <h2>Quality Distribution (Model Predictions)</h2>
-        <ul>
-            {"".join([f'<li><strong>{k}:</strong> {v} summaries</li>' for k, v in quality_dist.items()])}
-        </ul>
-
-        <h2>Top Performing Summaries</h2>
-        <table>
-            <tr><th>Document</th><th>Quality</th><th>Score</th></tr>
-            {generate_table_rows(df.nlargest(5, 'overall_score')[['document', 'quality', 'overall_score']])}
-        </table>
-    </body>
-    </html>
-    """
-
-    with open(f"{output_path}.html", 'w') as f:
-        f.write(html)
-
-
-def generate_confusion_matrix(df):
-    """Generate confusion matrix HTML for training report"""
-    if 'intended_quality' not in df.columns:
-        return ""
-
-    # Create confusion matrix
-    matrix = {}
-    for intended in ['high', 'medium', 'low']:
-        matrix[intended] = {}
-        for predicted in ['High', 'Medium', 'Low']:
-            count = len(df[(df['intended_quality'] == intended) & (df['quality'] == predicted)])
-            matrix[intended][predicted] = count
-
-    rows = []
-    for predicted in ['High', 'Medium', 'Low']:
-        row = f"<tr><td><strong>{predicted}</strong></td>"
-        for intended in ['high', 'medium', 'low']:
-            count = matrix[intended][predicted]
-            total = df[df['intended_quality'] == intended].shape[0]
-            pct = (count / total * 100) if total > 0 else 0
-            row += f"<td>{count} ({pct:.0f}%)</td>"
-        row += "</tr>"
-        rows.append(row)
-
-    return "".join(rows)
-
-
-def generate_query_report(results, output_path):
-    """Generate query-specific HTML report"""
-    df = pd.DataFrame(results)
-
-    html = f"""
-    <html>
-    <head>
-        <title>Query Evaluation Report</title>
-        <style>
-            body {{ font-family: Arial; margin: 40px; }}
-            .question {{ background: #e3f2fd; padding: 10px; margin: 10px 0; }}
-            .answer {{ background: #f5f5f5; padding: 10px; margin: 10px 0; }}
-            .quality-High {{ color: green; }}
-            .quality-Medium {{ color: orange; }}
-            .quality-Low {{ color: red; }}
-        </style>
-    </head>
-    <body>
-        <h1>📝 Query Evaluation Report</h1>
-        <p><strong>Total Questions:</strong> {len(df)}</p>
-
-        {"".join([f'''
-        <div class="question">
-            <h3>Q: {row['question']}</h3>
-            <div class="answer">
-                <p><strong>Answer:</strong> {row['answer'][:500]}...</p>
-                <p><strong>Quality:</strong> <span class="quality-{row['quality']}">{row['quality']}</span></p>
-                <p><strong>Relevance:</strong> {row.get('relevance_score', 0):.2f} | 
-                   <strong>Coherence:</strong> {row.get('coherence_score', 0):.2f}</p>
-            </div>
-        </div>
-        ''' for _, row in df.iterrows()])}
-    </body>
-    </html>
-    """
-
-    with open(f"{output_path}.html", 'w') as f:
-        f.write(html)
-
-
-def generate_index_report(stats, chunks_df, output_path):
-    """Generate HTML report for vector index"""
-    # Group chunks by source
-    source_stats = chunks_df.groupby('source').agg({
-        'chunk_index': 'count',
-        'text_length': ['mean', 'sum']
-    }).round(2)
-
-    html = f"""
-    <html>
-    <head>
-        <title>Vector Index Report</title>
-        <style>
-            body {{ font-family: Arial; margin: 40px; }}
-            table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
-            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-            th {{ background-color: #f2f2f2; }}
-            .metric {{ color: #2196F3; font-weight: bold; }}
-        </style>
-    </head>
-    <body>
-        <h1>🔍 Vector Index Report</h1>
-
-        <h2>Index Overview</h2>
-        <ul>
-            <li><strong>Total Documents:</strong> {stats['total_documents']}</li>
-            <li><strong>Total Chunks:</strong> {stats['total_chunks']}</li>
-            <li><strong>Embedding Dimensions:</strong> {stats['embedding_dimensions']}</li>
-            <li><strong>Average Chunks per Document:</strong> {stats['total_chunks'] / stats['total_documents']:.1f}</li>
-        </ul>
-
-        <h2>Document Statistics</h2>
-        <table>
-            <tr>
-                <th>Document</th>
-                <th>Number of Chunks</th>
-                <th>Avg Chunk Length</th>
-                <th>Total Characters</th>
-            </tr>
-            {"".join([f'''
-            <tr>
-                <td>{doc}</td>
-                <td>{int(source_stats.loc[doc, ('chunk_index', 'count')])}</td>
-                <td>{source_stats.loc[doc, ('text_length', 'mean')]:.0f}</td>
-                <td>{source_stats.loc[doc, ('text_length', 'sum')]:.0f}</td>
-            </tr>
-            ''' for doc in source_stats.index])}
-        </table>
-
-        <h2>Ready for Queries</h2>
-        <p>The vector index is now ready to answer questions about the indexed documents.</p>
-        <p>You can use query mode to ask questions about these documents.</p>
-    </body>
-    </html>
-    """
-
-    with open(f"{output_path}.html", 'w') as f:
-        f.write(html)
-
-
-def generate_table_rows(df):
-    """Helper to generate HTML table rows"""
-    return "".join([f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]:.2f}</td></tr>"
-                    for row in df.values])
+    print(f"\n✅ Reports generated successfully in {args.output}/")
+    print("📄 Files created:")
+    print(f"   - professional_report.html (Executive summary)")
+    print(f"   - metrics_summary.csv (Aggregated metrics)")
+    print(f"   - quality_breakdown.csv (Quality distribution)")
+    print(f"   - question_performance.csv (Per-question analysis)")
+    print(f"   - detailed_metrics.csv (All metrics for each question)")
 
 
 def main():
     parser = argparse.ArgumentParser(description='LLM Evaluation System')
-    parser.add_argument('mode', choices=['train', 'inference', 'query'],
+    parser.add_argument('mode', choices=['train', 'inference', 'query', 'report'],
                         help='Operation mode')
-    parser.add_argument('--input', type=Path, help='Input directory')
+    parser.add_argument('--input', type=Path, help='Input directory or file')
     parser.add_argument('--output', type=Path, default=Path('output'),
                         help='Output directory')
     parser.add_argument('--model', type=Path, help='Model file for train/query mode')
@@ -384,6 +211,11 @@ def main():
             print("❌ Error: Either --index or --pdfs is required for query mode")
             return
         query_mode(args)
+    elif args.mode == 'report':
+        if not args.input:
+            print("❌ Error: --input is required for report mode")
+            return
+        report_mode(args)
 
 
 if __name__ == "__main__":

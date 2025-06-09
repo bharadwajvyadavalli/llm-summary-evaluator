@@ -199,3 +199,8 @@ my_index/index_stats.csv
 my_index/vector_index/chunks.json
 my_index/vector_index/embeddings.npy
 my_index/vector_index/metadata.json
+reports/detailed_metrics.csv
+reports/metrics_summary.csv
+reports/professional_report.html
+reports/quality_breakdown.csv
+reports/question_performance.csv

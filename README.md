@@ -62,7 +62,18 @@ python main.py query --index indexes/vector_index/ --model output/quality_model.
 python main.py query --pdfs pdfs/docs/ --model output/quality_model.pkl --queries config --output results/
 ```
 
-## 📁 Project Structure
+#### 4. Report Mode
+Generate professional reports from query results:
+
+```bash
+python main.py report --input results/query_results.csv --output reports/
+```
+
+This will generate:
+- `professional_report.html` - Interactive executive report with charts and insights
+- `metrics_summary.csv` - Statistical summary of all metrics
+- `quality_breakdown.csv` - Quality distribution analysis
+- `question_performance.csv` - Detailed per-question performance
 
 ```
 ├── main.py           # Entry point with train/inference/query modes
@@ -185,11 +196,33 @@ echo "How does transfer learning work?" >> questions.csv
 # 6. Run Q&A evaluation using pre-built index
 python main.py query --index indexes/vector_index/ --model model/quality_model.pkl --queries questions.csv --output qa_results/
 
-# 7. View results
-open qa_results/query_report.html
+# 7. Generate professional reports
+python main.py report --input qa_results/query_results.csv --output qa_reports/
+
+# 8. View results
+open qa_reports/professional_report.html
 ```
 
 ## 🔧 Advanced Usage
+
+### Professional Reporting
+
+Generate comprehensive reports from query results:
+
+```bash
+# Run queries and generate initial results
+python main.py query --index indexes/vector_index/ --model model/quality_model.pkl --queries config --output results/
+
+# Generate professional reports
+python main.py report --input results/query_results.csv --output reports/
+
+# Reports include:
+# - Executive summary with key metrics
+# - Interactive charts and visualizations
+# - Performance distribution analysis
+# - Question-level breakdown
+# - Correlation analysis
+```
 
 ### Using Pre-built Indexes
 
