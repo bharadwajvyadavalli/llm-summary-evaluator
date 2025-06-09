@@ -7,6 +7,8 @@ import PyPDF2
 from pathlib import Path
 import openai
 import config
+import pickle
+import json
 
 class VectorQueryEngine:
     def __init__(self):
@@ -33,6 +35,49 @@ class VectorQueryEngine:
             texts = [c['text'] for c in self.chunks]
             self.chunk_embeddings = self.encoder.encode(texts)
             print(f"✅ Indexed {len(self.chunks)} chunks from {len(pdf_files)} PDFs")
+
+    def save_index(self, output_path):
+        """Save vector index to disk"""
+        output_path = Path(output_path)
+        output_path.mkdir(exist_ok=True)
+
+        # Save chunks as JSON (more readable)
+        with open(output_path / 'chunks.json', 'w') as f:
+            json.dump(self.chunks, f, indent=2)
+
+        # Save embeddings as numpy array
+        if self.chunk_embeddings is not None:
+            np.save(output_path / 'embeddings.npy', self.chunk_embeddings)
+
+        # Save metadata
+        metadata = {
+            'total_chunks': len(self.chunks),
+            'embedding_dim': self.chunk_embeddings.shape[1] if self.chunk_embeddings is not None else 0,
+            'encoder_model': 'all-MiniLM-L6-v2'
+        }
+        with open(output_path / 'metadata.json', 'w') as f:
+            json.dump(metadata, f, indent=2)
+
+        print(f"💾 Saved vector index to {output_path}")
+
+    def load_index(self, index_path):
+        """Load vector index from disk"""
+        index_path = Path(index_path)
+
+        # Load chunks
+        with open(index_path / 'chunks.json', 'r') as f:
+            self.chunks = json.load(f)
+
+        # Load embeddings
+        self.chunk_embeddings = np.load(index_path / 'embeddings.npy')
+
+        # Load metadata
+        with open(index_path / 'metadata.json', 'r') as f:
+            metadata = json.load(f)
+
+        print(f"📂 Loaded vector index from {index_path}")
+        print(f"   - Total chunks: {metadata['total_chunks']}")
+        print(f"   - Embedding dimensions: {metadata['embedding_dim']}")
 
     def answer_question(self, question):
         """Answer question using vector search and LLM"""

@@ -54,3 +54,17 @@ TOP_K_CHUNKS = 5
 
 # Processing Settings
 BATCH_SIZE = 10
+
+# Default Test Questions
+TEST_QUESTIONS = [
+    "What is machine learning and how does it differ from traditional programming?",
+    "Explain the concept of neural networks and deep learning",
+    "What are transformers in natural language processing?",
+    "How does gradient descent optimization work?",
+    "What is the difference between supervised and unsupervised learning?",
+    "Describe the process of transfer learning in deep learning",
+    "What are the main challenges in training large language models?",
+    "How do you evaluate the performance of a text summarization system?",
+    "What is the role of embeddings in natural language processing?",
+    "Explain the attention mechanism in neural networks"
+]

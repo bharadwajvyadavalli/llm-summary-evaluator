@@ -12,11 +12,10 @@ from models import QualityModel
 from vector_index import VectorQueryEngine
 import config
 
-#import os
-#os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 import warnings
+
 warnings.filterwarnings("ignore")
+
 
 def train_mode(args):
     """Train quality assessment model from PDFs"""
@@ -48,28 +47,45 @@ def train_mode(args):
 
 
 def inference_mode(args):
-    """Process new PDFs and evaluate quality"""
+    """Create vector indexes from PDFs for inference"""
     print("🚀 Starting inference mode...")
+    print("📚 Creating vector indexes from PDFs...")
 
-    # Load model
-    with open(args.model, 'rb') as f:
-        model = pickle.load(f)
+    # Initialize vector engine
+    engine = VectorQueryEngine()
+    engine.index_pdfs(args.input)
 
-    # Process PDFs (single high-quality summary per document)
-    processor = PDFProcessor()
-    documents = processor.process_directory(args.input, training_mode=False)
+    # Save the vector index
+    engine.save_index(args.output / 'vector_index')
 
-    # Evaluate and predict quality
-    evaluator = MetricsEvaluator()
-    metrics = evaluator.evaluate_batch(documents)
-    results = model.predict(metrics)
+    # Get index statistics
+    stats = engine.get_index_stats()
 
-    # Save results
-    df = pd.DataFrame(results)
-    df.to_csv(args.output / 'inference_results.csv', index=False)
+    print(f"\n✅ Vector index created successfully!")
+    print(f"📊 Index Statistics:")
+    print(f"   - Total chunks: {stats['total_chunks']}")
+    print(f"   - Total documents: {stats['total_documents']}")
+    print(f"   - Embedding dimensions: {stats['embedding_dimensions']}")
 
-    # Generate report
-    generate_report(results, args.output / 'inference_report')
+    # Save index statistics
+    stats_df = pd.DataFrame([stats])
+    stats_df.to_csv(args.output / 'index_stats.csv', index=False)
+
+    # Save chunk details for reference
+    chunks_data = []
+    for chunk in engine.chunks:
+        chunks_data.append({
+            'source': chunk['source'],
+            'chunk_index': chunk['index'],
+            'text_preview': chunk['text'][:100] + '...',
+            'text_length': len(chunk['text'])
+        })
+
+    chunks_df = pd.DataFrame(chunks_data)
+    chunks_df.to_csv(args.output / 'chunks_index.csv', index=False)
+
+    # Generate index report
+    generate_index_report(stats, chunks_df, args.output / 'index_report')
 
 
 def query_mode(args):
@@ -82,17 +98,39 @@ def query_mode(args):
 
     # Initialize vector engine
     engine = VectorQueryEngine()
-    engine.index_pdfs(args.pdfs)
+
+    # Load existing index or create new one
+    if args.index:
+        print(f"📂 Loading vector index from {args.index}")
+        engine.load_index(args.index)
+    elif args.pdfs:
+        print(f"📚 Creating vector index from {args.pdfs}")
+        engine.index_pdfs(args.pdfs)
+    else:
+        print("❌ Error: Either --index or --pdfs must be provided for query mode")
+        return
 
     # Process queries
     results = []
-    questions = pd.read_csv(args.queries) if args.queries.endswith('.csv') else [{'question': args.queries}]
+
+    # Determine source of questions
+    if args.queries == "config":
+        # Use questions from config.py
+        questions = config.TEST_QUESTIONS
+        print(f"📋 Using {len(questions)} questions from config.py")
+    elif args.queries.endswith('.csv'):
+        # Read from CSV file
+        questions_df = pd.read_csv(args.queries)
+        questions = questions_df['question'].tolist()
+        print(f"📋 Loaded {len(questions)} questions from {args.queries}")
+    else:
+        # Single question provided
+        questions = [args.queries]
 
     evaluator = MetricsEvaluator()
 
-    for item in questions:
-        question = item['question'] if isinstance(item, dict) else item
-        print(f"\n📝 Processing: {question}")
+    for i, question in enumerate(questions, 1):
+        print(f"\n📝 Processing [{i}/{len(questions)}]: {question}")
 
         # Get answer and chunks
         answer, chunks = engine.answer_question(question)
@@ -101,17 +139,20 @@ def query_mode(args):
         eval_metrics = evaluator.evaluate_answer(question, answer, chunks)
         quality = model.predict_single(eval_metrics)
 
+        # Clean chunks text for CSV (remove newlines, limit length)
+        chunks_text = ' | '.join([chunk.replace('\n', ' ').replace('\r', ' ')[:200] for chunk in chunks])
+
         results.append({
             'question': question,
-            'answer': answer,
-            'chunks': ' | '.join(chunks),
+            'answer': answer.replace('\n', ' ').replace('\r', ' '),
+            'chunks': chunks_text,
             'quality': quality,
             **eval_metrics
         })
 
-    # Save results
+    # Save results with proper escaping
     df = pd.DataFrame(results)
-    df.to_csv(args.output / 'query_results.csv', index=False)
+    df.to_csv(args.output / 'query_results.csv', index=False, escapechar='\\', quoting=1)
 
     # Generate report
     generate_query_report(results, args.output / 'query_report')
@@ -250,6 +291,66 @@ def generate_query_report(results, output_path):
         f.write(html)
 
 
+def generate_index_report(stats, chunks_df, output_path):
+    """Generate HTML report for vector index"""
+    # Group chunks by source
+    source_stats = chunks_df.groupby('source').agg({
+        'chunk_index': 'count',
+        'text_length': ['mean', 'sum']
+    }).round(2)
+
+    html = f"""
+    <html>
+    <head>
+        <title>Vector Index Report</title>
+        <style>
+            body {{ font-family: Arial; margin: 40px; }}
+            table {{ border-collapse: collapse; width: 100%; margin-top: 20px; }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+            th {{ background-color: #f2f2f2; }}
+            .metric {{ color: #2196F3; font-weight: bold; }}
+        </style>
+    </head>
+    <body>
+        <h1>🔍 Vector Index Report</h1>
+
+        <h2>Index Overview</h2>
+        <ul>
+            <li><strong>Total Documents:</strong> {stats['total_documents']}</li>
+            <li><strong>Total Chunks:</strong> {stats['total_chunks']}</li>
+            <li><strong>Embedding Dimensions:</strong> {stats['embedding_dimensions']}</li>
+            <li><strong>Average Chunks per Document:</strong> {stats['total_chunks'] / stats['total_documents']:.1f}</li>
+        </ul>
+
+        <h2>Document Statistics</h2>
+        <table>
+            <tr>
+                <th>Document</th>
+                <th>Number of Chunks</th>
+                <th>Avg Chunk Length</th>
+                <th>Total Characters</th>
+            </tr>
+            {"".join([f'''
+            <tr>
+                <td>{doc}</td>
+                <td>{int(source_stats.loc[doc, ('chunk_index', 'count')])}</td>
+                <td>{source_stats.loc[doc, ('text_length', 'mean')]:.0f}</td>
+                <td>{source_stats.loc[doc, ('text_length', 'sum')]:.0f}</td>
+            </tr>
+            ''' for doc in source_stats.index])}
+        </table>
+
+        <h2>Ready for Queries</h2>
+        <p>The vector index is now ready to answer questions about the indexed documents.</p>
+        <p>You can use query mode to ask questions about these documents.</p>
+    </body>
+    </html>
+    """
+
+    with open(f"{output_path}.html", 'w') as f:
+        f.write(html)
+
+
 def generate_table_rows(df):
     """Helper to generate HTML table rows"""
     return "".join([f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]:.2f}</td></tr>"
@@ -263,8 +364,9 @@ def main():
     parser.add_argument('--input', type=Path, help='Input directory')
     parser.add_argument('--output', type=Path, default=Path('output'),
                         help='Output directory')
-    parser.add_argument('--model', type=Path, help='Model file for inference/query')
-    parser.add_argument('--pdfs', type=Path, help='PDFs for query mode')
+    parser.add_argument('--model', type=Path, help='Model file for train/query mode')
+    parser.add_argument('--pdfs', type=Path, help='PDFs for query mode (creates new index)')
+    parser.add_argument('--index', type=Path, help='Pre-built vector index for query mode')
     parser.add_argument('--queries', help='Query file or single question')
 
     args = parser.parse_args()
@@ -275,6 +377,12 @@ def main():
     elif args.mode == 'inference':
         inference_mode(args)
     elif args.mode == 'query':
+        if not args.model:
+            print("❌ Error: --model is required for query mode")
+            return
+        if not (args.index or args.pdfs):
+            print("❌ Error: Either --index or --pdfs is required for query mode")
+            return
         query_mode(args)
 
 

@@ -32,21 +32,34 @@ This will:
 - Generate training report showing cluster alignment
 
 #### 2. Inference Mode
-Evaluate new PDFs using trained model:
+Create vector indexes from new PDFs:
 
 ```bash
-python main.py inference --input pdfs/test/ --model output/quality_model.pkl --output results/
+python main.py inference --input pdfs/test/ --output indexes/
 ```
+
+This will:
+- Process PDFs and extract text
+- Create chunks with overlap for better retrieval
+- Generate embeddings for all chunks
+- Save index statistics and chunk details
+- Generate index report showing document coverage
 
 #### 3. Query Mode
 Answer questions using vector search and evaluate response quality:
 
 ```bash
-# Single question
-python main.py query --pdfs pdfs/docs/ --model output/quality_model.pkl --queries "What is machine learning?" --output results/
+# Using questions from config.py (recommended for testing)
+python main.py query --index indexes/vector_index/ --model output/quality_model.pkl --queries config --output results/
 
-# Multiple questions from CSV
-python main.py query --pdfs pdfs/docs/ --model output/quality_model.pkl --queries questions.csv --output results/
+# Using questions from CSV file
+python main.py query --index indexes/vector_index/ --model output/quality_model.pkl --queries questions.csv --output results/
+
+# Using a single question
+python main.py query --index indexes/vector_index/ --model output/quality_model.pkl --queries "What is machine learning?" --output results/
+
+# Or create index on-the-fly from PDFs
+python main.py query --pdfs pdfs/docs/ --model output/quality_model.pkl --queries config --output results/
 ```
 
 ## 📁 Project Structure
@@ -55,9 +68,10 @@ python main.py query --pdfs pdfs/docs/ --model output/quality_model.pkl --querie
 ├── main.py           # Entry point with train/inference/query modes
 ├── processor.py      # PDF processing & summary generation
 ├── metrics_evals.py  # ROUGE metrics & LLM judge evaluation
-├── model.py          # Quality assessment model
+├── models.py         # Quality assessment model
 ├── vector_index.py   # Vector search for query evaluation
 ├── config.py         # Configuration settings
+├── test_system.py    # Testing script
 ├── requirements.txt  # Dependencies
 └── README.md         # This file
 ```
@@ -87,6 +101,10 @@ python main.py query --pdfs pdfs/docs/ --model output/quality_model.pkl --querie
 - CSV exports for further analysis
 - Quality distribution visualizations
 
+### Query Output
+- `query_results.csv` - Q&A evaluations
+- `query_report.html` - Interactive report
+
 ## 📝 Input/Output
 
 ### Training Input
@@ -100,9 +118,14 @@ python main.py query --pdfs pdfs/docs/ --model output/quality_model.pkl --querie
   - Confusion matrix showing model clustering vs intended quality
   - Performance metrics
 
-### Query Output
-- `query_results.csv` - Q&A evaluations
-- `query_report.html` - Interactive report
+### Inference Output
+- `vector_index/` - Directory containing saved vector index:
+  - `chunks.json` - All text chunks with metadata
+  - `embeddings.npy` - NumPy array of chunk embeddings
+  - `metadata.json` - Index metadata
+- `index_stats.csv` - Vector index statistics
+- `chunks_index.csv` - Details of all chunks created
+- `index_report.html` - Summary report
 
 ## ⚙️ Configuration
 
@@ -147,23 +170,39 @@ mkdir -p pdfs/training
 # 2. Train model
 python main.py train --input pdfs/training/ --output model/
 
-# 3. Prepare test questions
+# 3. Prepare documents for indexing
+mkdir -p pdfs/knowledge_base
+# Add relevant PDFs
+
+# 4. Create vector indexes
+python main.py inference --input pdfs/knowledge_base/ --output indexes/
+
+# 5. Prepare test questions
 echo "question" > questions.csv
 echo "What are the main applications of deep learning?" >> questions.csv
 echo "How does transfer learning work?" >> questions.csv
 
-# 4. Index documents for Q&A
-mkdir -p pdfs/knowledge_base
-# Add relevant PDFs
+# 6. Run Q&A evaluation using pre-built index
+python main.py query --index indexes/vector_index/ --model model/quality_model.pkl --queries questions.csv --output qa_results/
 
-# 5. Run Q&A evaluation
-python main.py query --pdfs pdfs/knowledge_base/ --model model/quality_model.pkl --queries questions.csv --output qa_results/
-
-# 6. View results
+# 7. View results
 open qa_results/query_report.html
 ```
 
 ## 🔧 Advanced Usage
+
+### Using Pre-built Indexes
+
+Save time by reusing vector indexes:
+
+```bash
+# Build index once
+python main.py inference --input pdfs/corpus/ --output indexes/
+
+# Use the same index for multiple query sessions
+python main.py query --index indexes/vector_index/ --model model/quality_model.pkl --queries batch1.csv --output results1/
+python main.py query --index indexes/vector_index/ --model model/quality_model.pkl --queries batch2.csv --output results2/
+```
 
 ### Custom Evaluation Metrics
 
@@ -181,7 +220,7 @@ Process large datasets:
 
 ```bash
 for dir in pdfs/batch_*; do
-    python main.py inference --input "$dir" --model model/quality_model.pkl --output "results/$(basename $dir)"
+    python main.py inference --input "$dir" --output "indexes/$(basename $dir)"
 done
 ```
 
