@@ -1,17 +1,37 @@
 """PDF Processing and Summary Generation"""
-
+import csv
 import re
 import PyPDF2
 from pathlib import Path
 import openai
 import config
+import requests
 
 class PDFProcessor:
     def __init__(self):
         self.client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
 
+    def download_papers_from_csv(self, csv_file, download_dir):
+        with open(csv_file, newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                paper_id = row[0]
+                pdf_url = f"https://arxiv.org/pdf/{paper_id}.pdf"
+                response = requests.get(pdf_url)
+                if response.status_code == 200:
+                    pdf_path = Path(download_dir) / f"{paper_id}.pdf"
+                    if not pdf_path.exists():
+                        print(f"📥 Downloading {paper_id}...")
+                        response = requests.get(pdf_url)
+                        with open(pdf_path, 'wb') as pdf_file:
+                            pdf_file.write(response.content)
+                        print(f"✅ Downloaded {paper_id}")
+                    else:
+                        print(f"📄 {paper_id} already exists, skipping download.")
+
     def process_directory(self, directory, training_mode=False):
         """Process all PDFs in directory"""
+        self.download_papers_from_csv("./input/math_papers.csv", directory)
         pdf_files = list(Path(directory).glob("*.pdf"))
         documents = []
 
