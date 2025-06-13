@@ -40,7 +40,7 @@ Keep it very short and basic. Length: 50-100 words. You can skip technical detai
 JUDGE_CRITERIA = [
     'relevance',
     'coherence',
-    'completeness'
+    'accuracy'
 ]
 
 # Clustering Settings
