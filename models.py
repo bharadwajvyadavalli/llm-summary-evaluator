@@ -17,9 +17,9 @@ class QualityModel:
         """Train quality categorization model"""
         df = pd.DataFrame(data)
 
-        # Select features
+        # Select features - updated to use new metrics
         self.feature_columns = [col for col in df.columns if any(
-            metric in col for metric in ['rouge', 'score', 'similarity', 'ratio']
+            metric in col for metric in ['alignment', 'coverage', 'score', 'similarity', 'ratio']
         )]
 
         # Prepare features
