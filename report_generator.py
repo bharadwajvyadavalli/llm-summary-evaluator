@@ -36,9 +36,9 @@ class ReportGenerator:
         analysis['avg_overall_score'] = df['overall_score'].mean()
         analysis['avg_relevance'] = df['relevance_score'].mean()
         analysis['avg_coherence'] = df['coherence_score'].mean()
-        analysis['avg_rouge1'] = df['rouge_1'].mean()
-        analysis['avg_rouge2'] = df['rouge_2'].mean()
-        analysis['avg_rougel'] = df['rouge_l'].mean()
+        analysis['avg_accuracy'] = df['accuracy_score'].mean() if 'accuracy_score' in df.columns else 0
+        analysis['avg_alignment'] = df['alignment_score'].mean() if 'alignment_score' in df.columns else 0
+        analysis['avg_coverage'] = df['coverage_score'].mean() if 'coverage_score' in df.columns else 0
         analysis['avg_semantic_sim'] = df['semantic_similarity'].mean()
 
         # Quality distribution
@@ -56,7 +56,10 @@ class ReportGenerator:
         analysis['bottom_questions'] = df.nsmallest(5, 'overall_score')[['question', 'overall_score', 'quality']].to_dict('records')
 
         # Metric correlations
-        metrics_cols = ['rouge_1', 'rouge_2', 'rouge_l', 'semantic_similarity', 'relevance_score', 'coherence_score']
+        metrics_cols = ['alignment_score', 'coverage_score', 'semantic_similarity', 'relevance_score', 'coherence_score']
+        if 'accuracy_score' in df.columns:
+            metrics_cols.append('accuracy_score')
+
         if len(df) > 1:  # Need at least 2 rows for correlation
             # Include overall_score in the correlation calculation
             corr_matrix = df[metrics_cols + ['overall_score']].corr()
@@ -83,45 +86,45 @@ class ReportGenerator:
                 'Overall Score',
                 'Relevance Score',
                 'Coherence Score',
-                'ROUGE-1',
-                'ROUGE-2',
-                'ROUGE-L',
+                'Accuracy Score',
+                'Alignment Score',
+                'Coverage Score',
                 'Semantic Similarity'
             ],
             'Average': [
                 analysis['avg_overall_score'],
                 analysis['avg_relevance'],
                 analysis['avg_coherence'],
-                analysis['avg_rouge1'],
-                analysis['avg_rouge2'],
-                analysis['avg_rougel'],
+                analysis['avg_accuracy'],
+                analysis['avg_alignment'],
+                analysis['avg_coverage'],
                 analysis['avg_semantic_sim']
             ],
             'Std Dev': [
                 df['overall_score'].std(),
                 df['relevance_score'].std(),
                 df['coherence_score'].std(),
-                df['rouge_1'].std(),
-                df['rouge_2'].std(),
-                df['rouge_l'].std(),
+                df['accuracy_score'].std() if 'accuracy_score' in df.columns else 0,
+                df['alignment_score'].std() if 'alignment_score' in df.columns else 0,
+                df['coverage_score'].std() if 'coverage_score' in df.columns else 0,
                 df['semantic_similarity'].std()
             ],
             'Min': [
                 df['overall_score'].min(),
                 df['relevance_score'].min(),
                 df['coherence_score'].min(),
-                df['rouge_1'].min(),
-                df['rouge_2'].min(),
-                df['rouge_l'].min(),
+                df['accuracy_score'].min() if 'accuracy_score' in df.columns else 0,
+                df['alignment_score'].min() if 'alignment_score' in df.columns else 0,
+                df['coverage_score'].min() if 'coverage_score' in df.columns else 0,
                 df['semantic_similarity'].min()
             ],
             'Max': [
                 df['overall_score'].max(),
                 df['relevance_score'].max(),
                 df['coherence_score'].max(),
-                df['rouge_1'].max(),
-                df['rouge_2'].max(),
-                df['rouge_l'].max(),
+                df['accuracy_score'].max() if 'accuracy_score' in df.columns else 0,
+                df['alignment_score'].max() if 'alignment_score' in df.columns else 0,
+                df['coverage_score'].max() if 'coverage_score' in df.columns else 0,
                 df['semantic_similarity'].max()
             ]
         })
@@ -141,6 +144,13 @@ class ReportGenerator:
 
         # 3. Question Performance Report
         question_perf = df[['question', 'quality', 'overall_score', 'relevance_score', 'coherence_score']].copy()
+        if 'accuracy_score' in df.columns:
+            question_perf['accuracy_score'] = df['accuracy_score']
+        if 'alignment_score' in df.columns:
+            question_perf['alignment_score'] = df['alignment_score']
+        if 'coverage_score' in df.columns:
+            question_perf['coverage_score'] = df['coverage_score']
+
         question_perf['performance_category'] = pd.cut(
             df['overall_score'],
             bins=[0, 6, 8, 10],
