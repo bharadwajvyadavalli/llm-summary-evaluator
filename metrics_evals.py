@@ -1,7 +1,6 @@
 """Metrics Calculation and LLM Judge Evaluation"""
 
 import numpy as np
-from rouge_score import rouge_scorer
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import openai
@@ -10,7 +9,6 @@ import config
 
 class MetricsEvaluator:
     def __init__(self):
-        self.rouge_scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'], use_stemmer=True)
         self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
 
@@ -39,20 +37,25 @@ class MetricsEvaluator:
         summary = doc['summary']
         reference = doc['abstract']
 
-        # Mathematical metrics
-        rouge_scores = self.calculate_rouge(summary, reference)
-        semantic_sim = self.calculate_semantic_similarity(summary, reference)
+        # Calculate alignment and coverage scores
+        alignment_score = self.calculate_alignment_score(summary, reference)
+        coverage_score = self.calculate_coverage_score(summary, reference)
 
         # LLM judge scores
         judge_scores = self.llm_judge_evaluate(summary, reference)
 
         # Combine all metrics
         return {
-            **rouge_scores,
-            'semantic_similarity': semantic_sim,
+            'alignment_score': alignment_score,
+            'coverage_score': coverage_score,
+            'semantic_similarity': self.calculate_semantic_similarity(summary, reference),
             'compression_ratio': len(summary.split()) / len(reference.split()) if reference else 0,
             **judge_scores,
-            'overall_score': self.calculate_overall_score({**rouge_scores, **judge_scores})
+            'overall_score': self.calculate_overall_score({
+                'alignment_score': alignment_score,
+                'coverage_score': coverage_score,
+                **judge_scores
+            })
         }
 
     def evaluate_answer(self, question, answer, chunks):
@@ -60,31 +63,83 @@ class MetricsEvaluator:
         # Join chunks for reference
         reference = ' '.join(chunks)
 
-        # Calculate metrics
-        rouge_scores = self.calculate_rouge(answer, reference)
-        semantic_sim = self.calculate_semantic_similarity(answer, reference)
+        # Calculate alignment and coverage scores
+        alignment_score = self.calculate_alignment_score(answer, reference)
+        coverage_score = self.calculate_coverage_score(answer, reference)
 
         # LLM judge for answer quality
         judge_scores = self.llm_judge_answer(question, answer, chunks)
 
         return {
-            **rouge_scores,
-            'semantic_similarity': semantic_sim,
+            'alignment_score': alignment_score,
+            'coverage_score': coverage_score,
+            'semantic_similarity': self.calculate_semantic_similarity(answer, reference),
             **judge_scores,
-            'overall_score': self.calculate_overall_score({**rouge_scores, **judge_scores})
+            'overall_score': self.calculate_overall_score({
+                'alignment_score': alignment_score,
+                'coverage_score': coverage_score,
+                **judge_scores
+            })
         }
 
-    def calculate_rouge(self, text, reference):
-        """Calculate ROUGE scores"""
+    def calculate_alignment_score(self, text, reference):
+        """Calculate alignment score using semantic similarity of sentences"""
         try:
-            scores = self.rouge_scorer.score(reference, text)
-            return {
-                'rouge_1': scores['rouge1'].fmeasure,
-                'rouge_2': scores['rouge2'].fmeasure,
-                'rouge_l': scores['rougeL'].fmeasure
-            }
-        except:
-            return {'rouge_1': 0.0, 'rouge_2': 0.0, 'rouge_l': 0.0}
+            # Split into sentences
+            text_sentences = [s.strip() for s in text.split('.') if s.strip()]
+            ref_sentences = [s.strip() for s in reference.split('.') if s.strip()]
+
+            if not text_sentences or not ref_sentences:
+                return 0.0
+
+            # Encode sentences
+            text_embeddings = self.sentence_model.encode(text_sentences)
+            ref_embeddings = self.sentence_model.encode(ref_sentences)
+
+            # Calculate alignment as average max similarity
+            alignment_scores = []
+            for text_emb in text_embeddings:
+                # Find best matching reference sentence
+                similarities = cosine_similarity([text_emb], ref_embeddings)[0]
+                max_similarity = max(similarities) if len(similarities) > 0 else 0
+                alignment_scores.append(max_similarity)
+
+            return float(np.mean(alignment_scores)) if alignment_scores else 0.0
+
+        except Exception as e:
+            print(f"Alignment calculation error: {e}")
+            return 0.0
+
+    def calculate_coverage_score(self, text, reference):
+        """Calculate how well the text covers key concepts from reference"""
+        try:
+            # Extract key phrases (simple approach - can be enhanced)
+            ref_words = set(reference.lower().split())
+            text_words = set(text.lower().split())
+
+            # Remove common words
+            common_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or', 'but'}
+            ref_keywords = ref_words - common_words
+            text_keywords = text_words - common_words
+
+            if not ref_keywords:
+                return 1.0
+
+            # Calculate coverage
+            covered_keywords = ref_keywords.intersection(text_keywords)
+            coverage = len(covered_keywords) / len(ref_keywords)
+
+            # Also consider semantic coverage using embeddings
+            text_embedding = self.sentence_model.encode([text])
+            ref_embedding = self.sentence_model.encode([reference])
+            semantic_coverage = cosine_similarity(text_embedding, ref_embedding)[0][0]
+
+            # Combine keyword and semantic coverage
+            return float((coverage + semantic_coverage) / 2)
+
+        except Exception as e:
+            print(f"Coverage calculation error: {e}")
+            return 0.0
 
     def calculate_semantic_similarity(self, text, reference):
         """Calculate semantic similarity"""
@@ -123,13 +178,13 @@ class MetricsEvaluator:
     def llm_judge_answer(self, question, answer, chunks):
         """Judge answer quality"""
         prompt = f"""
-        Rate this answer on relevance (1-10) and coherence (1-10).
+        Rate this answer on relevance (1-10), coherence (1-10), and accuracy (1-10).
         
         Question: {question}
         Answer: {answer}
         Context: {' '.join(chunks[:2])}
         
-        Format: Relevance: X/10, Coherence: Y/10
+        Format: Relevance: X/10, Coherence: Y/10, Accuracy: Z/10
         """
 
         try:
@@ -143,20 +198,22 @@ class MetricsEvaluator:
             text = response.choices[0].message.content
             relevance = self.parse_score(text, 'relevance')
             coherence = self.parse_score(text, 'coherence')
+            accuracy = self.parse_score(text, 'accuracy')
 
             return {
                 'relevance_score': relevance,
-                'coherence_score': coherence
+                'coherence_score': coherence,
+                'accuracy_score': accuracy
             }
         except:
-            return {'relevance_score': 5.0, 'coherence_score': 5.0}
+            return {'relevance_score': 5.0, 'coherence_score': 5.0, 'accuracy_score': 5.0}
 
     def get_evaluation_prompt(self, criterion, summary, reference):
         """Get criterion-specific prompt"""
         prompts = {
             'relevance': f"Rate relevance of summary to abstract (1-10):\nAbstract: {reference}\nSummary: {summary}\nScore:",
             'coherence': f"Rate coherence and flow of summary (1-10):\nSummary: {summary}\nScore:",
-            'completeness': f"Rate completeness of summary vs abstract (1-10):\nAbstract: {reference}\nSummary: {summary}\nScore:"
+            'accuracy': f"Rate factual accuracy of summary compared to abstract (1-10):\nAbstract: {reference}\nSummary: {summary}\nScore:"
         }
         return prompts.get(criterion, f"Rate {criterion} (1-10):\nSummary: {summary}\nScore:")
 
@@ -171,6 +228,25 @@ class MetricsEvaluator:
 
     def calculate_overall_score(self, metrics):
         """Calculate weighted overall score"""
-        # Simple average of available scores
-        scores = [v for k, v in metrics.items() if 'score' in k or 'rouge' in k]
-        return np.mean(scores) * 10 if scores else 5.0
+        # Weight the scores (alignment and coverage are 0-1, others are 1-10)
+        weights = {
+            'alignment_score': 2.0,  # Convert to 10-scale and weight
+            'coverage_score': 2.0,   # Convert to 10-scale and weight
+            'relevance_score': 1.5,
+            'coherence_score': 1.0,
+            'accuracy_score': 1.5
+        }
+
+        total_score = 0
+        total_weight = 0
+
+        for metric, weight in weights.items():
+            if metric in metrics:
+                value = metrics[metric]
+                # Convert alignment and coverage from 0-1 to 0-10 scale
+                if metric in ['alignment_score', 'coverage_score']:
+                    value = value * 10
+                total_score += value * weight
+                total_weight += weight
+
+        return total_score / total_weight if total_weight > 0 else 5.0
