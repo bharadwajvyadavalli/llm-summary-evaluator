@@ -129,24 +129,24 @@ class HTMLReportGenerator:
                 
                 <!-- Metrics Cards -->
                 <div class="metrics-grid">
-                    <!-- ROUGE Metrics -->
+                    <!-- Alignment & Coverage Metrics -->
                     <div class="metric-card">
                         <div class="metric-header">
-                            <div class="metric-icon">📝</div>
-                            <div class="metric-title">ROUGE Metrics</div>
+                            <div class="metric-icon">🎯</div>
+                            <div class="metric-title">Alignment & Coverage</div>
                         </div>
                         <div class="metric-content">
                             <div class="metric-row">
-                                <span class="metric-label">ROUGE-1</span>
-                                <span class="metric-value">{analysis['avg_rouge1']:.3f}</span>
+                                <span class="metric-label">Alignment Score</span>
+                                <span class="metric-value">{analysis['avg_alignment']:.3f}</span>
                             </div>
                             <div class="metric-row">
-                                <span class="metric-label">ROUGE-2</span>
-                                <span class="metric-value">{analysis['avg_rouge2']:.3f}</span>
+                                <span class="metric-label">Coverage Score</span>
+                                <span class="metric-value">{analysis['avg_coverage']:.3f}</span>
                             </div>
                             <div class="metric-row">
-                                <span class="metric-label">ROUGE-L</span>
-                                <span class="metric-value">{analysis['avg_rougel']:.3f}</span>
+                                <span class="metric-label">Semantic Similarity</span>
+                                <span class="metric-value">{analysis['avg_semantic_sim']:.3f}</span>
                             </div>
                         </div>
                     </div>
@@ -167,8 +167,8 @@ class HTMLReportGenerator:
                                 <span class="metric-value">{analysis['avg_coherence']:.1f}/10</span>
                             </div>
                             <div class="metric-row">
-                                <span class="metric-label">Overall Score</span>
-                                <span class="metric-value">{analysis['avg_overall_score']:.1f}/10</span>
+                                <span class="metric-label">Accuracy</span>
+                                <span class="metric-value">{analysis['avg_accuracy']:.1f}/10</span>
                             </div>
                         </div>
                     </div>
@@ -176,7 +176,7 @@ class HTMLReportGenerator:
                     <!-- Quality Distribution -->
                     <div class="metric-card">
                         <div class="metric-header">
-                            <div class="metric-icon">🎯</div>
+                            <div class="metric-icon">📊</div>
                             <div class="metric-title">Quality Distribution</div>
                         </div>
                         <div class="metric-content">
@@ -1180,12 +1180,12 @@ class HTMLReportGenerator:
         """Generate correlation metric cards"""
         html = ""
         metric_names = {
-            'rouge_1': 'ROUGE-1',
-            'rouge_2': 'ROUGE-2',
-            'rouge_l': 'ROUGE-L',
+            'alignment_score': 'Alignment',
+            'coverage_score': 'Coverage',
             'semantic_similarity': 'Semantic Sim',
             'relevance_score': 'Relevance',
-            'coherence_score': 'Coherence'
+            'coherence_score': 'Coherence',
+            'accuracy_score': 'Accuracy'
         }
 
         for metric, correlation in correlations.items():
